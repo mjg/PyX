@@ -30,12 +30,14 @@ with their attributes.
 """
 
 import sys, cStringIO, time
-import attr, base,  bbox, deco, unit, prolog, style, trafo, version
+import attr, base,  bbox, deco, deformer, unit, prolog, style, trafo, version
 
-# temporary for pdf fonts:
+# temporarily needed for pdf fonts
 import zlib
 from t1strip import fullfont
 import pykpathsea
+
+import pdfwriter
 
 try:
     enumerate([])
@@ -59,7 +61,7 @@ _paperformats = { "A4"      : (210 * unit.t_mm,   297  * unit.t_mm),
 # clipping class
 #
 
-class clip(base.PSCmd):
+class clip(base.canvasitem):
 
     """class for use in canvas constructor which clips to a path"""
 
@@ -68,7 +70,7 @@ class clip(base.PSCmd):
         self.path = path
 
     def bbox(self):
-        # as a PSCmd a clipping path has NO influence on the bbox...
+        # as a canvasitem a clipping path has NO influence on the bbox...
         return None
 
     def clipbbox(self):
@@ -88,9 +90,9 @@ class clip(base.PSCmd):
 # general canvas class
 #
 
-class _canvas(base.PSCmd):
+class _canvas(base.canvasitem):
 
-    """a canvas is a collection of PSCmds together with PSAttrs"""
+    """a canvas holds a collection of canvasitems"""
 
     def __init__(self, attrs=[], texrunner=None):
 
@@ -110,7 +112,7 @@ class _canvas(base.PSCmd):
 
         """
 
-        self.PSOps     = []
+        self.items     = []
         self.trafo     = trafo.trafo()
         self.clipbbox  = None
         if texrunner is not None:
@@ -123,26 +125,25 @@ class _canvas(base.PSCmd):
         for attr in attrs:
             if isinstance(attr, trafo.trafo_pt):
                 self.trafo = self.trafo*attr
-                self.PSOps.append(attr)
+                self.items.append(attr)
             elif isinstance(attr, clip):
                 if self.clipbbox is None:
                     self.clipbbox = attr.clipbbox().transformed(self.trafo)
                 else:
                     self.clippbox *= attr.clipbbox().transformed(self.trafo)
-                self.PSOps.append(attr)
+                self.items.append(attr)
             else:
                 self.set([attr])
 
     def bbox(self):
         """returns bounding box of canvas"""
         obbox = None
-        for cmd in self.PSOps:
-            if isinstance(cmd, base.PSCmd):
-                abbox = cmd.bbox()
-                if obbox is None:
-                    obbox = abbox
-                elif abbox is not None:
-                    obbox += abbox
+        for cmd in self.items:
+            abbox = cmd.bbox()
+            if obbox is None:
+                obbox = abbox
+            elif abbox is not None:
+                obbox += abbox
 
         # transform according to our global transformation and
         # intersect with clipping bounding box (which have already been
@@ -156,43 +157,44 @@ class _canvas(base.PSCmd):
 
     def prolog(self):
         result = []
-        for cmd in self.PSOps:
+        for cmd in self.items:
             result.extend(cmd.prolog())
         return result
 
     def outputPS(self, file):
-        if self.PSOps:
+        if self.items:
             file.write("gsave\n")
-            for cmd in self.PSOps:
+            for cmd in self.items:
                 cmd.outputPS(file)
             file.write("grestore\n")
 
     def outputPDF(self, file):
-        if self.PSOps:
+        if self.items:
             file.write("q\n") # gsave
-            for cmd in self.PSOps:
+            for cmd in self.items:
                 cmd.outputPDF(file)
             file.write("Q\n") # grestore
 
-    def insert(self, PSOp, attrs=[]):
-        """insert PSOp in the canvas.
+    def insert(self, item, attrs=None):
+        """insert item in the canvas.
 
-        If attrss are given, a canvas containing the PSOp is inserted applying attrs.
+        If attrs are passed, a canvas containing the item is inserted applying attrs.
 
-        returns the PSOp
+        returns the item
 
         """
 
-        # XXX check for PSOp
+        if not isinstance(item, base.canvasitem):
+            raise RuntimeError("only instances of base.canvasitem can be inserted into a canvas")
 
         if attrs:
             sc = _canvas(attrs)
-            sc.insert(PSOp)
-            self.PSOps.append(sc)
+            sc.insert(item)
+            self.items.append(sc)
         else:
-            self.PSOps.append(PSOp)
+            self.items.append(item)
 
-        return PSOp
+        return item
 
     def set(self, attrs):
         """sets styles args globally for the rest of the canvas
@@ -213,15 +215,13 @@ class _canvas(base.PSCmd):
         """
 
         attrs = attr.mergeattrs(attrs)
-        attr.checkattrs(attrs, [deco.deco, style.fillstyle, style.strokestyle, trafo.trafo_pt])
+        attr.checkattrs(attrs, [deco.deco, deformer.deformer, style.fillstyle, style.strokestyle])
 
-        for t in attr.getattrs(attrs, [trafo.trafo_pt]):
-            path = path.transformed(t)
+        for adeformer in attr.getattrs(attrs, [deformer.deformer]):
+            path = adeformer.deform(path)
 
-        dp = deco.decoratedpath(path)
-
-        # set global styles
-        dp.styles = attr.getattrs(attrs, [style.fillstyle, style.strokestyle])
+        styles = attr.getattrs(attrs, [style.fillstyle, style.strokestyle])
+        dp = deco.decoratedpath(path, styles=styles)
 
         # add path decorations and modify path accordingly
         for adeco in attr.getattrs(attrs, [deco.deco]):
@@ -310,11 +310,11 @@ class pattern(_canvas, attr.exclusiveattr, style.fillstyle):
         if self.xstep is None:
            xstep = unit.topt(realpatternbbox.width())
         else:
-           xstep = unit.topt(unit.length(self.xstep))
+           xstep = unit.topt(self.xstep)
         if self.ystep is None:
             ystep = unit.topt(realpatternbbox.height())
         else:
-           ystep = unit.topt(unit.length(self.ystep))
+           ystep = unit.topt(self.ystep)
         if not xstep:
             raise ValueError("xstep in pattern cannot be zero")
         if not ystep:
@@ -348,7 +348,8 @@ def calctrafo(abbox, paperformat, margin, rotated, fittosize):
     """ calculate a trafo which rotates and fits a canvas with
     bounding box abbox on the given paperformat with a margin on all
     sides"""
-    margin = unit.length(margin)
+    if not isinstance(margin, unit.length):
+        margin = unit.length(margin)
     atrafo = None     # global transformation of canvas
 
     if rotated:
@@ -363,7 +364,7 @@ def calctrafo(abbox, paperformat, margin, rotated, fittosize):
 
         paperwidth -= 2*margin
         paperheight -= 2*margin
-        
+
         if not atrafo: atrafo = trafo.trafo()
 
         atrafo = atrafo.translated(margin + 0.5*(paperwidth  - abbox.width())  - abbox.left(),
@@ -393,7 +394,7 @@ def calctrafo(abbox, paperformat, margin, rotated, fittosize):
 
 class canvas(_canvas):
 
-    """a canvas is a collection of PSCmds together with PSAttrs"""
+    """a canvas holds a collection of canvasitems"""
 
     def writeEPSfile(self, filename, paperformat=None, rotated=0, fittosize=0, margin=1 * unit.t_cm,
                     bbox=None, bboxenlarge=1 * unit.t_pt):
@@ -513,7 +514,8 @@ class canvas(_canvas):
         file.write("3 0 obj\n"
                    "<<\n"
                    "/Type /Page\n"
-                   "/Parent 2 0 R\n")
+                   "/Parent 2 0 R\n"
+                   "/MediaBox ")
         abbox.outputPDF(file)
         file.write("/Contents 4 0 R\n"
                    "/Resources <<\n")
@@ -663,6 +665,37 @@ class canvas(_canvas):
                    "startxref\n"
                    "%i\n"
                    "%%%%EOF\n" % xrefpos)
+
+    def writePDFfile_new(self, filename, paperformat=None, rotated=0, fittosize=0, margin=1 * unit.t_cm,
+                    bbox=None, bboxenlarge=1 * unit.t_pt):
+        sys.stderr.write("*** PyX Warning: writePDFfile is experimental and supports only a subset of PyX's features\n")
+
+        if filename[-4:]!=".pdf":
+            filename = filename + ".pdf"
+
+        try:
+            writer = pdfwriter.pdfwriter(filename)
+        except IOError:
+            raise IOError("cannot open output file")
+
+        abbox = bbox is not None and bbox or self.bbox()
+        abbox.enlarge(bboxenlarge)
+
+        ctrafo = calctrafo(abbox, paperformat, margin, rotated, fittosize)
+
+        # if there has been a global transformation, adjust the bounding box
+        # accordingly
+        if ctrafo: abbox.transform(ctrafo)
+
+        mergedprolog = []
+
+        for pritem in self.prolog():
+            for mpritem in mergedprolog:
+                if mpritem.merge(pritem) is None: break
+            else:
+                mergedprolog.append(pritem)
+        writer.page(abbox, self, mergedprolog, ctrafo)
+        writer.close()
 
     def writetofile(self, filename, *args, **kwargs):
         if filename[-4:] == ".eps":

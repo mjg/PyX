@@ -23,313 +23,437 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 
-import re, math
+import math
 from pyx import attr, deco, style, color, unit, canvas, path
 from pyx import text as textmodule
 
+try:
+    enumerate([])
+except NameError:
+    # fallback implementation for Python 2.2. and below
+    def enumerate(list):
+        return zip(xrange(len(list)), list)
 
 class _style:
+    """Interface class for graph styles
 
-    def setdatapattern(self, graph, columns, pattern):
-        for datakey in columns.keys():
-            match = pattern.match(datakey)
-            if match:
-                # XXX match.groups()[0] must contain the full axisname
-                axisname = match.groups()[0]
-                index = columns[datakey]
-                del columns[datakey]
-                return graph.axes[axisname], index
+    Each graph style must support the methods described in this
+    class. However, since a graph style might not need to perform
+    actions on all the various events, it does not need to overwrite
+    all methods of this base class (e.g. this class is not an abstract
+    class in any respect).
 
-    def key_pt(self, c, x_pt, y_pt, width_pt, height_pt, styledata):
-        raise RuntimeError("style doesn't provide a key")
+    A style should never store private data by istance variables
+    (i.e. accessing self), but it should use the sharedata and privatedata
+    instances instead. A style instance can be used multiple times with
+    different sharedata and privatedata instances at the very same time.
+    The sharedata and privatedata instances act as data containers and
+    sharedata allows for sharing information across several styles.
 
-    def adjustaxes(self, points, columns, styledata):
-        return
+    Every style contains two class variables, which are not to be
+    modified:
+     - providesdata is a list of variable names a style offers via
+       the sharedata instance. This list is used to determine whether
+       all needs of subsequent styles are fullfilled. Otherwise
+       getdefaultprovider should return a proper style to be used.
+     - needsdata is a list of variable names the style needs to access in the 
+       sharedata instance.
+    """
 
-    def setdata(self, graph, columns, styledata):
-        return columns
+    providesdata = [] # by default, we provide nothing
+    needsdata = [] # and do not depend on anything
 
-    def selectstyle(self, selectindex, selecttotal, styledata):
+    def columns(self, privatedata, sharedata, graph, columns):
+        """Set column information
+
+        This method is used setup the column information to be
+        accessible to the style later on. The style should analyse
+        the list of strings columns, which contain the column names
+        of the data. The method should return a list of column names
+        which the style will make use of."""
+        return []
+
+    def selectstyle(self, privatedata, sharedata, graph, selectindex, selecttotal):
+        """Select stroke/fill attributes
+
+        This method is called to allow for the selection of
+        changable attributes of a style."""
         pass
 
-    def initdrawpoints(self, graph, styledata):
+    def adjustaxis(self, privatedata, sharedata, graph, column, data, index):
+        """Adjust axis range
+
+        This method is called in order to adjust the axis range to
+        the provided data. Column is the name of the column (each
+        style is subsequently called for all column names). If index
+        is not None, data is a list of points and index is the index
+        of the column within a point. Otherwise data is already the
+        axis data. Note, that data might be different for different
+        columns, e.i. data might come from various places and is
+        combined without copying but keeping references."""
         pass
 
-    def drawpoint(self, graph, styledata):
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        """Initialize drawing of data
+
+        This method might be used to initialize the drawing of data."""
         pass
 
-    def donedrawpoints(self, graph, styledata):
+    def drawpoint(self, privatedata, sharedata, graph):
+        """Draw data
+
+        This method is called for each data point. The data is
+        available in the dictionary sharedata.point. The dictionary
+        keys are the column names."""
         pass
 
+    def donedrawpoints(self, privatedata, sharedata, graph):
+        """Finalize drawing of data
 
-class pointpos(_style):
+        This method is called after the last data point was
+        drawn using the drawpoint method above."""
+        pass
+
+    def key_pt(self, privatedata, sharedata, graph, x_pt, y_pt, width_pt, height_pt):
+        """Draw graph key"""
+
+
+# The following two methods are used to register and get a default provider
+# for keys. A key is a variable name in sharedata. A provider is a style
+# which creates variables in sharedata.
+
+_defaultprovider = {}
+
+def registerdefaultprovider(style, keys):
+    """sets a style as a default creator for sharedata variables 'keys'"""
+    assert not len(style.needsdata), "currently we state, that a style should not depend on other sharedata variables"
+    for key in keys:
+        assert key in style.providesdata, "key not provided by style"
+        # we might allow for overwriting the defaults, i.e. the following is not checked:
+        # assert key in _defaultprovider.keys(), "default provider already registered for key"
+        _defaultprovider[key] = style
+
+def getdefaultprovider(key):
+    """returns a style, which acts as a default creator for the
+    sharedata variable 'key'"""
+    return _defaultprovider[key]
+
+
+class pos(_style):
+
+    providesdata = ["vpos", "vposmissing", "vposavailable", "vposvalid"]
 
     def __init__(self, epsilon=1e-10):
         self.epsilon = epsilon
 
-    def setdata(self, graph, columns, styledata):
-        # analyse column information
-        styledata.pointposaxisindex = []
-        columns = columns.copy()
-        for axisname in graph.axisnames:
-            pattern = re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % axisname)
-            styledata.pointposaxisindex.append(self.setdatapattern(graph, columns, pattern)) # TODO: append "needed=1"
-        return columns
+    def columns(self, privatedata, sharedata, graph, columns):
+        privatedata.pointposcolumns = []
+        sharedata.vposmissing = []
+        for count, axisnames in enumerate(graph.axesnames):
+            for axisname in axisnames:
+                for column in columns:
+                    if axisname == column:
+                         privatedata.pointposcolumns.append(column)
+            if len(privatedata.pointposcolumns) + len(sharedata.vposmissing) > count+1:
+                raise ValueError("multiple axes per graph dimension")
+            elif len(privatedata.pointposcolumns) + len(sharedata.vposmissing) < count+1:
+                sharedata.vposmissing.append(count)
+        return privatedata.pointposcolumns
 
-    def adjustaxes(self, points, columns, styledata):
-        for axis, index in styledata.pointposaxisindex:
-            axis.adjustrange(points, index)
+    def adjustaxis(self, privatedata, sharedata, graph, column, data, index):
+        if column in privatedata.pointposcolumns:
+            graph.axes[column].adjustrange(data, index)
 
-    def drawpoint(self, graph, styledata):
-        # calculate vpos
-        styledata.validvpos = 1 # valid position (but might be outside of the graph)
-        styledata.drawsymbol = 1 # valid position inside the graph
-        styledata.vpos = [axis.convert(styledata.point[index]) for axis, index in styledata.pointposaxisindex]
-        # for axisname in graph.axisnames:
-        #     try:
-        #         v = styledata.axes[axisname].convert(styledata.point[styledata.index[axisname]["x"]])
-        #     except (ArithmeticError, KeyError, ValueError, TypeError):
-        #         styledata.validvpos = 0
-        #         styledata.drawsymbol = 0
-        #         styledata.vpos.append(None)
-        #     else:
-        #         if v < - self.epsilon or v > 1 + self.epsilon:
-        #             styledata.drawsymbol = 0
-        #         styledata.vpos.append(v)
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        sharedata.vpos = [None]*(len(privatedata.pointposcolumns) + len(sharedata.vposmissing))
+        privatedata.pointpostmplist = [[column, index, graph.axes[column]] # temporarily used by drawpoint only
+                                     for index, column in enumerate(privatedata.pointposcolumns)]
+        for missing in sharedata.vposmissing:
+            for pointpostmp in privatedata.pointpostmplist:
+                if pointpostmp[1] >= missing:
+                    pointpostmp[1] += 1
 
-
-class rangepos(_style):
-
-    def setdata(self, graph, columns, styledata):
-        """
-        - the instance should be considered read-only
-          (it might be shared between several data)
-        - styledata is the place where to store information
-        - returns the dictionary of columns not used by the style"""
-
-        # analyse column information
-        styledata.index = {} # a nested index dictionary containing
-                        # column numbers, e.g. styledata.index["x"]["x"],
-                        # styledata.index["y"]["dmin"] etc.; the first key is a axis
-                        # name (without the axis number), the second is one of
-                        # the datanames ["x", "min", "max", "d", "dmin", "dmax"]
-        styledata.axes = {}  # mapping from axis name (without axis number) to the axis
-
-        columns = columns.copy()
-        for axisname in graph.axisnames:
-            for dataname, pattern in [("x", re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % axisname)),
-                                      ("min", re.compile(r"(%s([2-9]|[1-9][0-9]+)?)min$" % axisname)),
-                                      ("max", re.compile(r"(%s([2-9]|[1-9][0-9]+)?)max$" % axisname)),
-                                      ("d", re.compile(r"d(%s([2-9]|[1-9][0-9]+)?)$" % axisname)),
-                                      ("dmin", re.compile(r"d(%s([2-9]|[1-9][0-9]+)?)min$" % axisname)),
-                                      ("dmax", re.compile(r"d(%s([2-9]|[1-9][0-9]+)?)max$" % axisname))]:
-                matchresult = self.setdatapattern(graph, columns, pattern)
-                if matchresult is not None:
-                    axis, index = matchresult
-                    if styledata.axes.has_key(axisname):
-                        if styledata.axes[axisname] != axis:
-                            raise ValueError("axis mismatch for axis name '%s'" % axisname)
-                        styledata.index[axisname][dataname] = index
-                    else:
-                        styledata.index[axisname] = {dataname: index}
-                        styledata.axes[axisname] = axis
-            if not styledata.axes.has_key(axisname):
-                raise ValueError("missing columns for axis name '%s'" % axisname)
-            if ((styledata.index[axisname].has_key("min") and styledata.index[axisname].has_key("d")) or
-                (styledata.index[axisname].has_key("min") and styledata.index[axisname].has_key("dmin")) or
-                (styledata.index[axisname].has_key("d") and styledata.index[axisname].has_key("dmin")) or
-                (styledata.index[axisname].has_key("max") and styledata.index[axisname].has_key("d")) or
-                (styledata.index[axisname].has_key("max") and styledata.index[axisname].has_key("dmax")) or
-                (styledata.index[axisname].has_key("d") and styledata.index[axisname].has_key("dmax"))):
-                raise ValueError("multiple errorbar definition for axis name '%s'" % axisname)
-            if (not styledata.index[axisname].has_key("x") and
-                (styledata.index[axisname].has_key("d") or
-                 styledata.index[axisname].has_key("dmin") or
-                 styledata.index[axisname].has_key("dmax"))):
-                raise ValueError("errorbar definition start value missing for axis name '%s'" % axisname)
-        return columns
-
-    def adjustaxes(self, points, columns, styledata):
-        # reverse lookup for axisnames
-        # TODO: the reverse lookup is ugly
-        axisnames = []
-        for column in columns:
-            for axisname in styledata.index.keys():
-                for thiscolumn in styledata.index[axisname].values():
-                    if thiscolumn == column and axisname not in axisnames:
-                        axisnames.append(axisname)
-        # TODO: perform check to verify that all columns for a given axisname are available at the same time
-        for axisname in axisnames:
-            if styledata.index[axisname].has_key("x"):
-                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["x"])
-            if styledata.index[axisname].has_key("min"):
-                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["min"])
-            if styledata.index[axisname].has_key("max"):
-                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["max"])
-            if styledata.index[axisname].has_key("d"):
-                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["x"], deltaindex=styledata.index[axisname]["d"])
-            if styledata.index[axisname].has_key("dmin"):
-                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["x"], deltaminindex=styledata.index[axisname]["dmin"])
-            if styledata.index[axisname].has_key("dmax"):
-                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["x"], deltamaxindex=styledata.index[axisname]["dmax"])
-
-    def doerrorbars(self, styledata):
-        # errorbar loop over the different direction having errorbars
-        for erroraxisname, erroraxisindex in styledata.errorlist:
-
-            # check for validity of other point components
-            i = 0
-            for v in styledata.vpos:
-                if v is None and i != erroraxisindex:
-                    break
-                i += 1
+    def drawpoint(self, privatedata, sharedata, graph):
+        sharedata.vposavailable = 1 # valid position (but might be outside of the graph)
+        sharedata.vposvalid = 1 # valid position inside the graph
+        for column, index, axis in privatedata.pointpostmplist:
+            try:
+                v = axis.convert(sharedata.point[column])
+            except (ArithmeticError, ValueError, TypeError):
+                sharedata.vposavailable = sharedata.vposvalid = 0
+                sharedata.vpos[index] = None
             else:
-                # calculate min and max
-                errorindex = styledata.index[erroraxisname]
-                try:
-                    min = styledata.point[errorindex["x"]] - styledata.point[errorindex["d"]]
-                except:
-                    try:
-                        min = styledata.point[errorindex["x"]] - styledata.point[errorindex["dmin"]]
-                    except:
-                        try:
-                            min = styledata.point[errorindex["min"]]
-                        except:
-                            min = None
-                try:
-                    max = styledata.point[errorindex["x"]] + styledata.point[errorindex["d"]]
-                except:
-                    try:
-                        max = styledata.point[errorindex["x"]] + styledata.point[errorindex["dmax"]]
-                    except:
-                        try:
-                            max = styledata.point[errorindex["max"]]
-                        except:
-                            max = None
+                if v < -self.epsilon or v > 1+self.epsilon:
+                    sharedata.vposvalid = 0
+                sharedata.vpos[index] = v
 
-                # calculate vmin and vmax
-                try:
-                    vmin = styledata.axes[erroraxisname].convert(min)
-                except:
-                    vmin = None
-                try:
-                    vmax = styledata.axes[erroraxisname].convert(max)
-                except:
-                    vmax = None
 
-                # create vminpos and vmaxpos
-                vcaps = []
-                if vmin is not None:
-                    vminpos = styledata.vpos[:]
-                    if vmin > - self.epsilon and vmin < 1 + self.epsilon:
-                        vminpos[erroraxisindex] = vmin
-                        vcaps.append(vminpos)
+registerdefaultprovider(pos(), pos.providesdata)
+
+
+class range(_style):
+
+    providesdata = ["vrange", "vrangemissing", "vrangeminmissing", "vrangemaxmissing"]
+
+    # internal bit masks
+    mask_value = 1
+    mask_min = 2
+    mask_max = 4
+    mask_dmin = 8
+    mask_dmax = 16
+    mask_d = 32
+
+    def __init__(self, usenames={}, epsilon=1e-10):
+        self.usenames = usenames
+        self.epsilon = epsilon
+
+    def columns(self, privatedata, sharedata, graph, columns):
+        def numberofbits(mask):
+            if not mask:
+                return 0
+            if mask & 1:
+                return numberofbits(mask >> 1) + 1
+            else:
+                return numberofbits(mask >> 1)
+        usecolumns = []
+        privatedata.rangeposcolumns = []
+        sharedata.vrangemissing = []
+        sharedata.vrangeminmissing = []
+        sharedata.vrangemaxmissing = []
+        privatedata.rangeposdeltacolumns = {} # temporarily used by adjustaxis only
+        for count, axisnames in enumerate(graph.axesnames):
+            for axisname in axisnames:
+                try:
+                    usename = self.usenames[axisname]
+                except KeyError:
+                    usename = axisname
+                mask = 0
+                for column in columns:
+                    addusecolumns = 1
+                    if usename == column:
+                        mask += self.mask_value
+                    elif usename + "min" == column:
+                        mask += self.mask_min
+                    elif usename + "max" == column:
+                        mask += self.mask_max
+                    elif "d" + usename + "min" == column:
+                        mask += self.mask_dmin
+                    elif "d" + usename + "max" == column:
+                        mask += self.mask_dmax
+                    elif "d" + usename == column:
+                        mask += self.mask_d
                     else:
-                        vminpos[erroraxisindex] = 0
-                elif styledata.vpos[erroraxisindex] is not None:
-                    vminpos = styledata.vpos
-                else:
-                    break
-                if vmax is not None:
-                    vmaxpos = styledata.vpos[:]
-                    if vmax > - self.epsilon and vmax < 1 + self.epsilon:
-                        vmaxpos[erroraxisindex] = vmax
-                        vcaps.append(vmaxpos)
-                    else:
-                        vmaxpos[erroraxisindex] = 1
-                elif styledata.vpos[erroraxisindex] is not None:
-                    vmaxpos = styledata.vpos
-                else:
-                    break
+                        addusecolumns = 0
+                    if addusecolumns:
+                        usecolumns.append(column)
+                if mask & (self.mask_min | self.mask_max | self.mask_dmin | self.mask_dmax | self.mask_d):
+                    if (numberofbits(mask & (self.mask_min | self.mask_dmin | self.mask_d)) > 1 or
+                        numberofbits(mask & (self.mask_max | self.mask_dmax | self.mask_d)) > 1):
+                        raise ValueError("multiple range definition")
+                    if mask & (self.mask_dmin | self.mask_dmax | self.mask_d):
+                        if not (mask & self.mask_value):
+                            raise ValueError("missing value for delta")
+                        privatedata.rangeposdeltacolumns[axisname] = {}
+                    privatedata.rangeposcolumns.append((axisname, usename, mask))
+                elif mask == self.mask_value:
+                    usecolumns = usecolumns[:-1]
+            if len(privatedata.rangeposcolumns) + len(sharedata.vrangemissing) > count+1:
+                raise ValueError("multiple axes per graph dimension")
+            elif len(privatedata.rangeposcolumns) + len(sharedata.vrangemissing) < count+1:
+                sharedata.vrangemissing.append(count)
+            else:
+                if not (privatedata.rangeposcolumns[-1][2] & (self.mask_min | self.mask_dmin | self.mask_d)):
+                    sharedata.vrangeminmissing.append(count)
+                if not (privatedata.rangeposcolumns[-1][2] & (self.mask_max | self.mask_dmax | self.mask_d)):
+                    sharedata.vrangemaxmissing.append(count)
+        return usecolumns
+
+    def adjustaxis(self, privatedata, sharedata, graph, column, data, index):
+        if column in [c + "min" for a, c, m in privatedata.rangeposcolumns if m & self.mask_min]:
+            graph.axes[column[:-3]].adjustrange(data, index)
+        if column in [c + "max" for a, c, m in privatedata.rangeposcolumns if m & self.mask_max]:
+            graph.axes[column[:-3]].adjustrange(data, index)
+
+        # delta handling: fill rangeposdeltacolumns
+        for axisname, usename, mask in privatedata.rangeposcolumns:
+            if column == usename and mask & (self.mask_dmin | self.mask_dmax | self.mask_d):
+                privatedata.rangeposdeltacolumns[axisname][self.mask_value] = data, index
+            if column == "d" + usename + "min" and mask & self.mask_dmin:
+                privatedata.rangeposdeltacolumns[axisname][self.mask_dmin] = data, index
+            if column == "d" + usename + "max" and mask & self.mask_dmax:
+                privatedata.rangeposdeltacolumns[axisname][self.mask_dmax] = data, index
+            if column == "d" + usename and mask & self.mask_d:
+                privatedata.rangeposdeltacolumns[axisname][self.mask_d] = data, index
+
+        # delta handling: process rangeposdeltacolumns
+        for a, d in privatedata.rangeposdeltacolumns.items():
+            if d.has_key(self.mask_value):
+                for k in d.keys():
+                    if k != self.mask_value:
+                        if k & (self.mask_dmin | self.mask_d):
+                            graph.axes[a].adjustrange(d[self.mask_value][0], d[self.mask_value][1],
+                                                      deltamindata=d[k][0], deltaminindex=d[k][1])
+                        if k & (self.mask_dmax | self.mask_d):
+                            graph.axes[a].adjustrange(d[self.mask_value][0], d[self.mask_value][1],
+                                                      deltamaxdata=d[k][0], deltamaxindex=d[k][1])
+                        del d[k]
+
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        sharedata.vrange = [[None for x in xrange(2)] for y in privatedata.rangeposcolumns + sharedata.vrangemissing]
+        privatedata.rangepostmplist = [[usename, mask, index, graph.axes[axisname]] # temporarily used by drawpoint only
+                                     for index, (axisname, usename, mask) in enumerate(privatedata.rangeposcolumns)]
+        for missing in sharedata.vrangemissing:
+            for rangepostmp in privatedata.rangepostmplist:
+                if rangepostmp[2] >= missing:
+                    rangepostmp[2] += 1
+
+    def drawpoint(self, privatedata, sharedata, graph):
+        for usename, mask, index, axis in privatedata.rangepostmplist:
+            try:
+                if mask & self.mask_min:
+                    sharedata.vrange[index][0] = axis.convert(sharedata.point[usename + "min"])
+                if mask & self.mask_dmin:
+                    sharedata.vrange[index][0] = axis.convert(sharedata.point[usename] - sharedata.point["d" + usename + "min"])
+                if mask & self.mask_d:
+                    sharedata.vrange[index][0] = axis.convert(sharedata.point[usename] - sharedata.point["d" + usename])
+            except (ArithmeticError, ValueError, TypeError):
+                sharedata.vrange[index][0] = None
+            try:
+                if mask & self.mask_max:
+                    sharedata.vrange[index][1] = axis.convert(sharedata.point[usename + "max"])
+                if mask & self.mask_dmax:
+                    sharedata.vrange[index][1] = axis.convert(sharedata.point[usename] + sharedata.point["d" + usename + "max"])
+                if mask & self.mask_d:
+                    sharedata.vrange[index][1] = axis.convert(sharedata.point[usename] + sharedata.point["d" + usename])
+            except (ArithmeticError, ValueError, TypeError):
+                sharedata.vrange[index][1] = None
+
+            # some range checks for data consistency
+            if (sharedata.vrange[index][0] is not None and sharedata.vrange[index][1] is not None and
+                sharedata.vrange[index][0] > sharedata.vrange[index][1] + self.epsilon):
+                raise ValueError("inverse range")
+            # disabled due to missing vpos access:
+            # if (sharedata.vrange[index][0] is not None and sharedata.vpos[index] is not None and
+            #     sharedata.vrange[index][0] > sharedata.vpos[index] + self.epsilon):
+            #     raise ValueError("negative minimum errorbar")
+            # if (sharedata.vrange[index][1] is not None and sharedata.vpos[index] is not None and
+            #     sharedata.vrange[index][1] < sharedata.vpos[index] - self.epsilon):
+            #     raise ValueError("negative maximum errorbar")
 
 
-class symbol(_style):
+registerdefaultprovider(range(), range.providesdata)
 
-    def cross(self, x_pt, y_pt, size_pt):
-        return (path.moveto_pt(x_pt-0.5*size_pt, y_pt-0.5*size_pt),
-                path.lineto_pt(x_pt+0.5*size_pt, y_pt+0.5*size_pt),
-                path.moveto_pt(x_pt-0.5*size_pt, y_pt+0.5*size_pt),
-                path.lineto_pt(x_pt+0.5*size_pt, y_pt-0.5*size_pt))
 
-    def plus(self, x_pt, y_pt, size_pt):
-        return (path.moveto_pt(x_pt-0.707106781*size_pt, y_pt),
-                path.lineto_pt(x_pt+0.707106781*size_pt, y_pt),
-                path.moveto_pt(x_pt, y_pt-0.707106781*size_pt),
-                path.lineto_pt(x_pt, y_pt+0.707106781*size_pt))
+def _crosssymbol(c, x_pt, y_pt, size_pt, attrs):
+    c.draw(path.path(path.moveto_pt(x_pt-0.5*size_pt, y_pt-0.5*size_pt),
+                     path.lineto_pt(x_pt+0.5*size_pt, y_pt+0.5*size_pt),
+                     path.moveto_pt(x_pt-0.5*size_pt, y_pt+0.5*size_pt),
+                     path.lineto_pt(x_pt+0.5*size_pt, y_pt-0.5*size_pt)), attrs)
 
-    def square(self, x_pt, y_pt, size_pt):
-        return (path.moveto_pt(x_pt-0.5*size_pt, y_pt-0.5*size_pt),
-                path.lineto_pt(x_pt+0.5*size_pt, y_pt-0.5*size_pt),
-                path.lineto_pt(x_pt+0.5*size_pt, y_pt+0.5*size_pt),
-                path.lineto_pt(x_pt-0.5*size_pt, y_pt+0.5*size_pt),
-                path.closepath())
+def _plussymbol(c, x_pt, y_pt, size_pt, attrs):
+    c.draw(path.path(path.moveto_pt(x_pt-0.707106781*size_pt, y_pt),
+                     path.lineto_pt(x_pt+0.707106781*size_pt, y_pt),
+                     path.moveto_pt(x_pt, y_pt-0.707106781*size_pt),
+                     path.lineto_pt(x_pt, y_pt+0.707106781*size_pt)), attrs)
 
-    def triangle(self, x_pt, y_pt, size_pt):
-        return (path.moveto_pt(x_pt-0.759835685*size_pt, y_pt-0.438691337*size_pt),
-                path.lineto_pt(x_pt+0.759835685*size_pt, y_pt-0.438691337*size_pt),
-                path.lineto_pt(x_pt, y_pt+0.877382675*size_pt),
-                path.closepath())
+def _squaresymbol(c, x_pt, y_pt, size_pt, attrs):
+    c.draw(path.path(path.moveto_pt(x_pt-0.5*size_pt, y_pt-0.5*size_pt),
+                     path.lineto_pt(x_pt+0.5*size_pt, y_pt-0.5*size_pt),
+                     path.lineto_pt(x_pt+0.5*size_pt, y_pt+0.5*size_pt),
+                     path.lineto_pt(x_pt-0.5*size_pt, y_pt+0.5*size_pt),
+                     path.closepath()), attrs)
 
-    def circle(self, x_pt, y_pt, size_pt):
-        return (path.arc_pt(x_pt, y_pt, 0.564189583*size_pt, 0, 360),
-                path.closepath())
+def _trianglesymbol(c, x_pt, y_pt, size_pt, attrs):
+    c.draw(path.path(path.moveto_pt(x_pt-0.759835685*size_pt, y_pt-0.438691337*size_pt),
+                     path.lineto_pt(x_pt+0.759835685*size_pt, y_pt-0.438691337*size_pt),
+                     path.lineto_pt(x_pt, y_pt+0.877382675*size_pt),
+                     path.closepath()), attrs)
 
-    def diamond(self, x_pt, y_pt, size_pt):
-        return (path.moveto_pt(x_pt-0.537284965*size_pt, y_pt),
-                path.lineto_pt(x_pt, y_pt-0.930604859*size_pt),
-                path.lineto_pt(x_pt+0.537284965*size_pt, y_pt),
-                path.lineto_pt(x_pt, y_pt+0.930604859*size_pt),
-                path.closepath())
+def _circlesymbol(c, x_pt, y_pt, size_pt, attrs):
+    c.draw(path.path(path.arc_pt(x_pt, y_pt, 0.564189583*size_pt, 0, 360),
+                     path.closepath()), attrs)
 
-    changecross = attr.changelist([cross, plus, square, triangle, circle, diamond])
-    changeplus = attr.changelist([plus, square, triangle, circle, diamond, cross])
-    changesquare = attr.changelist([square, triangle, circle, diamond, cross, plus])
-    changetriangle = attr.changelist([triangle, circle, diamond, cross, plus, square])
-    changecircle = attr.changelist([circle, diamond, cross, plus, square, triangle])
-    changediamond = attr.changelist([diamond, cross, plus, square, triangle, circle])
-    changesquaretwice = attr.changelist([square, square, triangle, triangle, circle, circle, diamond, diamond])
-    changetriangletwice = attr.changelist([triangle, triangle, circle, circle, diamond, diamond, square, square])
-    changecircletwice = attr.changelist([circle, circle, diamond, diamond, square, square, triangle, triangle])
-    changediamondtwice = attr.changelist([diamond, diamond, square, square, triangle, triangle, circle, circle])
+def _diamondsymbol(c, x_pt, y_pt, size_pt, attrs):
+    c.draw(path.path(path.moveto_pt(x_pt-0.537284965*size_pt, y_pt),
+                     path.lineto_pt(x_pt, y_pt-0.930604859*size_pt),
+                     path.lineto_pt(x_pt+0.537284965*size_pt, y_pt),
+                     path.lineto_pt(x_pt, y_pt+0.930604859*size_pt),
+                     path.closepath()), attrs)
+
+
+class _styleneedingpointpos(_style):
+
+    needsdata = ["vposmissing"]
+
+    def columns(self, privatedata, sharedata, graph, columns):
+        if len(sharedata.vposmissing):
+            raise ValueError("position columns incomplete")
+        return []
+
+
+class symbol(_styleneedingpointpos):
+
+    needsdata = ["vpos", "vposmissing", "vposvalid"]
+
+    # insert symbols
+    # note, that statements like cross = _crosssymbol are
+    # invalid, since the would lead to unbound methods, but
+    # a single entry changeable list does the trick
+    cross = attr.changelist([_crosssymbol])
+    plus = attr.changelist([_plussymbol])
+    square = attr.changelist([_squaresymbol])
+    triangle = attr.changelist([_trianglesymbol])
+    circle = attr.changelist([_circlesymbol])
+    diamond = attr.changelist([_diamondsymbol])
+
+    changecross = attr.changelist([_crosssymbol, _plussymbol, _squaresymbol, _trianglesymbol, _circlesymbol, _diamondsymbol])
+    changeplus = attr.changelist([_plussymbol, _squaresymbol, _trianglesymbol, _circlesymbol, _diamondsymbol, cross])
+    changesquare = attr.changelist([_squaresymbol, _trianglesymbol, _circlesymbol, _diamondsymbol, cross, _plussymbol])
+    changetriangle = attr.changelist([_trianglesymbol, _circlesymbol, _diamondsymbol, cross, _plussymbol, _squaresymbol])
+    changecircle = attr.changelist([_circlesymbol, _diamondsymbol, cross, _plussymbol, _squaresymbol, _trianglesymbol])
+    changediamond = attr.changelist([_diamondsymbol, cross, _plussymbol, _squaresymbol, _trianglesymbol, _circlesymbol])
+    changesquaretwice = attr.changelist([_squaresymbol, _squaresymbol, _trianglesymbol, _trianglesymbol, _circlesymbol, _circlesymbol, _diamondsymbol, _diamondsymbol])
+    changetriangletwice = attr.changelist([_trianglesymbol, _trianglesymbol, _circlesymbol, _circlesymbol, _diamondsymbol, _diamondsymbol, _squaresymbol, _squaresymbol])
+    changecircletwice = attr.changelist([_circlesymbol, _circlesymbol, _diamondsymbol, _diamondsymbol, _squaresymbol, _squaresymbol, _trianglesymbol, _trianglesymbol])
+    changediamondtwice = attr.changelist([_diamondsymbol, _diamondsymbol, _squaresymbol, _squaresymbol, _trianglesymbol, _trianglesymbol, _circlesymbol, _circlesymbol])
 
     changestrokedfilled = attr.changelist([deco.stroked, deco.filled])
     changefilledstroked = attr.changelist([deco.filled, deco.stroked])
 
     defaultsymbolattrs = [deco.stroked]
 
-    def __init__(self, symbol=changecross,
-                       size=0.2*unit.v_cm,
-                       symbolattrs=[],
-                       epsilon=1e-10):
+    def __init__(self, symbol=changecross, size=0.2*unit.v_cm, symbolattrs=[]):
         self.symbol = symbol
         self.size = size
         self.symbolattrs = symbolattrs
-        self.epsilon = epsilon
 
-    def selectstyle(self, selectindex, selecttotal, styledata):
-        styledata.symbol = attr.selectattr(self.symbol, selectindex, selecttotal)
-        styledata.size_pt = unit.topt(attr.selectattr(self.size, selectindex, selecttotal))
+    def selectstyle(self, privatedata, sharedata, graph, selectindex, selecttotal):
+        privatedata.symbol = attr.selectattr(self.symbol, selectindex, selecttotal)
+        privatedata.size_pt = unit.topt(attr.selectattr(self.size, selectindex, selecttotal))
         if self.symbolattrs is not None:
-            styledata.symbolattrs = attr.selectattrs(self.defaultsymbolattrs + self.symbolattrs, selectindex, selecttotal)
+            privatedata.symbolattrs = attr.selectattrs(self.defaultsymbolattrs + self.symbolattrs, selectindex, selecttotal)
         else:
-            styledata.symbolattrs = None
+            privatedata.symbolattrs = None
 
-    def drawsymbol_pt(self, c, x_pt, y_pt, styledata, point=None):
-        if styledata.symbolattrs is not None:
-            c.draw(path.path(*styledata.symbol(self, x_pt, y_pt, styledata.size_pt)), styledata.symbolattrs)
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        privatedata.symbolcanvas = canvas.canvas()
 
-    def drawpoint(self, graph, styledata):
-        if styledata.drawsymbol:
-            styledata.xpos, styledata.ypos = graph.vpos_pt(*styledata.vpos)
-            self.drawsymbol_pt(graph, styledata.xpos, styledata.ypos, styledata, point=styledata.point)
+    def drawpoint(self, privatedata, sharedata, graph):
+        if sharedata.vposvalid and privatedata.symbolattrs is not None:
+            xpos, ypos = graph.vpos_pt(*sharedata.vpos)
+            privatedata.symbol(privatedata.symbolcanvas, xpos, ypos, privatedata.size_pt, privatedata.symbolattrs)
 
-    def key_pt(self, c, x_pt, y_pt, width_pt, height_pt, styledata):
-        self.drawsymbol_pt(c, x_pt+0.5*width_pt, y_pt+0.5*height_pt, styledata)
-        if styledata.lineattrs is not None:
-            c.stroke(path.line_pt(x_pt, y_pt+0.5*height_pt, x_pt+width_pt, y_pt+0.5*height_pt), styledata.lineattrs)
+    def donedrawpoints(self, privatedata, sharedata, graph):
+        graph.insert(privatedata.symbolcanvas)
+
+    def key_pt(self, privatedata, sharedata, graph, x_pt, y_pt, width_pt, height_pt):
+        if privatedata.symbolattrs is not None:
+            privatedata.symbol(graph, x_pt+0.5*width_pt, y_pt+0.5*height_pt, privatedata.size_pt, privatedata.symbolattrs)
 
 
-class line(_style):
+class line(_styleneedingpointpos):
+
+    needsdata = ["vpos", "vposmissing", "vposavailable", "vposvalid"]
 
     changelinestyle = attr.changelist([style.linestyle.solid,
                                        style.linestyle.dashed,
@@ -341,28 +465,38 @@ class line(_style):
     def __init__(self, lineattrs=[]):
         self.lineattrs = lineattrs
 
-    def selectstyle(self, selectindex, selecttotal, styledata):
-        styledata.lineattrs = attr.selectattrs(self.defaultlineattrs + self.lineattrs, selectindex, selecttotal)
+    def selectstyle(self, privatedata, sharedata, graph, selectindex, selecttotal):
+        privatedata.lineattrs = attr.selectattrs(self.defaultlineattrs + self.lineattrs, selectindex, selecttotal)
 
-    def initdrawpoints(self, graph, styledata):
-        styledata.linecanvas = graph.insert(canvas.canvas())
-        styledata.path = path.path()
-        styledata.linebasepoints = []
-        styledata.lastvpos = None
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        if privatedata.lineattrs is not None:
+            privatedata.linecanvas = canvas.canvas()
+            privatedata.linecanvas.set(privatedata.lineattrs)
+        privatedata.path = path.path()
+        privatedata.linebasepoints = []
+        privatedata.lastvpos = None
 
-    def appendlinebasepoints(self, graph, styledata):
+    def addpointstopath(self, privatedata, sharedata):
+        # add baselinepoints to privatedata.path
+        if len(privatedata.linebasepoints) > 1:
+            privatedata.path.append(path.moveto_pt(*privatedata.linebasepoints[0]))
+            if len(privatedata.linebasepoints) > 2:
+                privatedata.path.append(path.multilineto_pt(privatedata.linebasepoints[1:]))
+            else:
+                privatedata.path.append(path.lineto_pt(*privatedata.linebasepoints[1]))
+        privatedata.linebasepoints = []
+
+    def drawpoint(self, privatedata, sharedata, graph):
         # append linebasepoints
-        if styledata.validvpos:
-            if len(styledata.linebasepoints):
+        if sharedata.vposavailable:
+            if len(privatedata.linebasepoints):
                 # the last point was inside the graph
-                if styledata.drawsymbol: # this is wrong
-                    # we always need the following line here:
-                    styledata.xpos, styledata.ypos = graph.vpos_pt(*styledata.vpos)
-                    styledata.linebasepoints.append((styledata.xpos, styledata.ypos))
+                if sharedata.vposvalid: # shortcut for the common case
+                    privatedata.linebasepoints.append(graph.vpos_pt(*sharedata.vpos))
                 else:
                     # cut end
                     cut = 1
-                    for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                    for vstart, vend in zip(privatedata.lastvpos, sharedata.vpos):
                         newcut = None
                         if vend > 1:
                             # 1 = vstart + (vend - vstart) * cut
@@ -380,17 +514,17 @@ class line(_style):
                             cut = newcut
                     else:
                         cutvpos = []
-                        for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                        for vstart, vend in zip(privatedata.lastvpos, sharedata.vpos):
                             cutvpos.append(vstart + (vend - vstart) * cut)
-                        styledata.linebasepoints.append(styledata.graph.vpos_pt(*cutvpos))
-                        styledata.validvpos = 0 # clear linebasepoints below
+                        privatedata.linebasepoints.append(graph.vpos_pt(*cutvpos))
+                    self.addpointstopath(privatedata, sharedata)
             else:
                 # the last point was outside the graph
-                if styledata.lastvpos is not None:
-                    if styledata.drawsymbol:
+                if privatedata.lastvpos is not None:
+                    if sharedata.vposvalid:
                         # cut beginning
                         cut = 0
-                        for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                        for vstart, vend in zip(privatedata.lastvpos, sharedata.vpos):
                             newcut = None
                             if vstart > 1:
                                 # 1 = vstart + (vend - vstart) * cut
@@ -408,15 +542,15 @@ class line(_style):
                                 cut = newcut
                         else:
                             cutvpos = []
-                            for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                            for vstart, vend in zip(privatedata.lastvpos, sharedata.vpos):
                                 cutvpos.append(vstart + (vend - vstart) * cut)
-                            styledata.linebasepoints.append(graph.vpos_pt(*cutvpos))
-                            styledata.linebasepoints.append(graph.vpos_pt(*styledata.vpos))
+                            privatedata.linebasepoints.append(graph.vpos_pt(*cutvpos))
+                            privatedata.linebasepoints.append(graph.vpos_pt(*sharedata.vpos))
                     else:
                         # sometimes cut beginning and end
                         cutfrom = 0
                         cutto = 1
-                        for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                        for vstart, vend in zip(privatedata.lastvpos, sharedata.vpos):
                             newcutfrom = None
                             if vstart > 1:
                                 if vend > 1:
@@ -455,38 +589,33 @@ class line(_style):
                             if cutfrom < cutto:
                                 cutfromvpos = []
                                 cuttovpos = []
-                                for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                                for vstart, vend in zip(privatedata.lastvpos, sharedata.vpos):
                                     cutfromvpos.append(vstart + (vend - vstart) * cutfrom)
                                     cuttovpos.append(vstart + (vend - vstart) * cutto)
-                                styledata.linebasepoints.append(styledata.graph.vpos_pt(*cutfromvpos))
-                                styledata.linebasepoints.append(styledata.graph.vpos_pt(*cuttovpos))
-                        styledata.validvpos = 0 # clear linebasepoints below
-            styledata.lastvpos = styledata.vpos
+                                privatedata.linebasepoints.append(graph.vpos_pt(*cutfromvpos))
+                                privatedata.linebasepoints.append(graph.vpos_pt(*cuttovpos))
+                                self.addpointstopath(privatedata, sharedata)
+            privatedata.lastvpos = sharedata.vpos[:]
         else:
-            styledata.lastvpos = None
+            if len(privatedata.linebasepoints) > 1:
+                self.addpointstopath(privatedata, sharedata)
+            privatedata.lastvpos = None
 
-    def addpointstopath(self, styledata):
-        # add baselinepoints to styledata.path
-        if len(styledata.linebasepoints) > 1:
-            styledata.path.append(path.moveto_pt(*styledata.linebasepoints[0]))
-            if len(styledata.linebasepoints) > 2:
-                styledata.path.append(path.multilineto_pt(styledata.linebasepoints[1:]))
-            else:
-                styledata.path.append(path.lineto_pt(*styledata.linebasepoints[1]))
-        styledata.linebasepoints = []
+    def donedrawpoints(self, privatedata, sharedata, graph):
+        if len(privatedata.linebasepoints) > 1:
+            self.addpointstopath(privatedata, sharedata)
+        if privatedata.lineattrs is not None and len(privatedata.path.path):
+            graph.insert(privatedata.linecanvas)
+            privatedata.linecanvas.stroke(privatedata.path)
 
-    def donedrawpoints(self, graph, styledata):
-        self.addpointstopath(styledata)
-        if styledata.lineattrs is not None:
-            styledata.linecanvas.stroke(styledata.path, styledata.lineattrs)
-
-    def drawpoint(self, graph, styledata):
-        self.appendlinebasepoints(graph, styledata)
-        if not styledata.validvpos:
-            self.addpointstopath(styledata)
+    def key_pt(self, privatedata, sharedata, graph, x_pt, y_pt, width_pt, height_pt):
+        if privatedata.lineattrs is not None:
+            graph.stroke(path.line_pt(x_pt, y_pt+0.5*height_pt, x_pt+width_pt, y_pt+0.5*height_pt), privatedata.lineattrs)
 
 
-class errorbars(_style):
+class errorbar(_style):
+
+    needsdata = ["vpos", "vposmissing", "vposavailable", "vposvalid", "vrange", "vrangemissing"]
 
     defaulterrorbarattrs = []
 
@@ -497,193 +626,210 @@ class errorbars(_style):
         self.errorbarattrs = errorbarattrs
         self.epsilon = epsilon
 
-    def selectstyle(self, selectindex, selecttotal, styledata):
-        styledata.errorsize_pt = unit.topt(attr.selectattr(self.size, selectindex, selecttotal))
-        styledata.errorbarattrs = attr.selectattrs(self.defaulterrorbarattrs + self.errorbarattrs, selectindex, selecttotal)
+    def columns(self, privatedata, sharedata, graph, columns):
+        for i in sharedata.vposmissing:
+            if i in sharedata.vrangemissing:
+                raise ValueError("position and range for a graph dimension missing")
+        return []
 
-    def initdrawpoints(self, graph, styledata):
-        styledata.errorbarcanvas = graph.insert(canvas.canvas())
-        styledata.errorlist = []
-        if styledata.errorbarattrs is not None:
-            axisindex = 0
-            for axisname in graph.axisnames:
-                if styledata.index[axisname].keys() != ["x"]:
-                    styledata.errorlist.append((axisname, axisindex))
-                axisindex += 1
+    def selectstyle(self, privatedata, sharedata, graph, selectindex, selecttotal):
+        privatedata.errorsize_pt = unit.topt(attr.selectattr(self.size, selectindex, selecttotal))
+        privatedata.errorbarattrs = attr.selectattrs(self.defaulterrorbarattrs + self.errorbarattrs, selectindex, selecttotal)
 
-    def doerrorbars(self, styledata):
-        # errorbar loop over the different direction having errorbars
-        for erroraxisname, erroraxisindex in styledata.errorlist:
-                # create path for errorbars
-                errorpath = path.path()
-                errorpath += styledata.graph.vgeodesic(*(vminpos + vmaxpos))
-                for vcap in vcaps:
-                    for axisname in styledata.graph.axisnames:
-                        if axisname != erroraxisname:
-                            errorpath += styledata.graph.vcap_pt(axisname, styledata.errorsize_pt, *vcap)
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        if privatedata.errorbarattrs is not None:
+            privatedata.errorbarcanvas = canvas.canvas()
+            privatedata.errorbarcanvas.set(privatedata.errorbarattrs)
+            privatedata.dimensionlist = list(xrange(len(sharedata.vpos)))
 
-                # stroke errorpath
-                if len(errorpath.path):
-                    styledata.errorbarcanvas.stroke(errorpath, styledata.errorbarattrs)
+    def drawpoint(self, privatedata, sharedata, graph):
+        if privatedata.errorbarattrs is not None:
+            for i in privatedata.dimensionlist:
+                for j in privatedata.dimensionlist:
+                    if (i != j and
+                        (sharedata.vpos[j] is None or
+                         sharedata.vpos[j] < -self.epsilon or
+                         sharedata.vpos[j] > 1+self.epsilon)):
+                        break
+                else:
+                    if ((sharedata.vrange[i][0] is None and sharedata.vpos[i] is None) or
+                        (sharedata.vrange[i][1] is None and sharedata.vpos[i] is None) or
+                        (sharedata.vrange[i][0] is None and sharedata.vrange[i][1] is None)):
+                        continue
+                    vminpos = sharedata.vpos[:]
+                    if sharedata.vrange[i][0] is not None:
+                        vminpos[i] = sharedata.vrange[i][0]
+                        mincap = 1
+                    else:
+                        mincap = 0
+                    if vminpos[i] > 1+self.epsilon:
+                        continue
+                    if vminpos[i] < -self.epsilon:
+                        vminpos[i] = 0
+                        mincap = 0
+                    vmaxpos = sharedata.vpos[:]
+                    if sharedata.vrange[i][1] is not None:
+                        vmaxpos[i] = sharedata.vrange[i][1]
+                        maxcap = 1
+                    else:
+                        maxcap = 0
+                    if vmaxpos[i] < -self.epsilon:
+                        continue
+                    if vmaxpos[i] > 1+self.epsilon:
+                        vmaxpos[i] = 1
+                        maxcap = 0
+                    privatedata.errorbarcanvas.stroke(graph.vgeodesic(*(vminpos + vmaxpos)))
+                    for j in privatedata.dimensionlist:
+                        if i != j:
+                            if mincap:
+                                privatedata.errorbarcanvas.stroke(graph.vcap_pt(j, privatedata.errorsize_pt, *vminpos))
+                            if maxcap:
+                                privatedata.errorbarcanvas.stroke(graph.vcap_pt(j, privatedata.errorsize_pt, *vmaxpos))
 
-    def drawpoint(self, graph, styledata):
-        self.doerrorbars(styledata)
+    def donedrawpoints(self, privatedata, sharedata, graph):
+        if privatedata.errorbarattrs is not None:
+            graph.insert(privatedata.errorbarcanvas)
 
 
-class text(symbol):
+class text(_styleneedingpointpos):
+
+    needsdata = ["vpos", "vposmissing", "vposvalid"]
 
     defaulttextattrs = [textmodule.halign.center, textmodule.vshift.mathaxis]
 
-    def __init__(self, textdx=0*unit.v_cm, textdy=0.3*unit.v_cm, textattrs=[], **kwargs):
+    def __init__(self, textname="text", textdx=0*unit.v_cm, textdy=0.3*unit.v_cm, textattrs=[]):
+        self.textname = textname
         self.textdx = textdx
         self.textdy = textdy
         self.textattrs = textattrs
-        symbol.__init__(self, **kwargs)
 
-    def setdata(self, graph, columns, styledata):
-        columns = columns.copy()
-        styledata.textindex = columns["text"]
-        del columns["text"]
-        return symbol.setdata(self, graph, columns, styledata)
+    def columns(self, privatedata, sharedata, graph, columns):
+        if self.textname not in columns:
+            raise ValueError("column '%s' missing" % self.textname)
+        return [self.textname] + _styleneedingpointpos.columns(self, privatedata, sharedata, graph, columns)
 
-    def selectstyle(self, selectindex, selecttotal, styledata):
+    def selectstyle(self, privatedata, sharedata, graph, selectindex, selecttotal):
         if self.textattrs is not None:
-            styledata.textattrs = attr.selectattrs(self.defaulttextattrs + self.textattrs, selectindex, selecttotal)
+            privatedata.textattrs = attr.selectattrs(self.defaulttextattrs + self.textattrs, selectindex, selecttotal)
         else:
-            styledata.textattrs = None
-        symbol.selectstyle(self, selectindex, selecttotal, styledata)
+            privatedata.textattrs = None
 
-    def drawsymbol_pt(self, c, x, y, styledata, point=None):
-        symbol.drawsymbol_pt(self, c, x, y, styledata, point)
-        if None not in (x, y, point[styledata.textindex]) and styledata.textattrs is not None:
-            c.text_pt(x + styledata.textdx_pt, y + styledata.textdy_pt, str(point[styledata.textindex]), styledata.textattrs)
+    def initdrawpoints(self, privatedata, sharedata, grap):
+        privatedata.textdx_pt = unit.topt(self.textdx)
+        privatedata.textdy_pt = unit.topt(self.textdy)
 
-    def drawpoints(self, points, graph, styledata):
-        styledata.textdx_pt = unit.topt(self.textdx)
-        styledata.textdy_pt = unit.topt(self.textdy)
-        symbol.drawpoints(self, points, graph, styledata)
+    def drawpoint(self, privatedata, sharedata, graph):
+        if privatedata.textattrs is not None and sharedata.vposvalid:
+            x_pt, y_pt = graph.vpos_pt(*sharedata.vpos)
+            try:
+                text = str(sharedata.point[self.textname])
+            except:
+                pass
+            else:
+                graph.text_pt(x_pt + privatedata.textdx_pt, y_pt + privatedata.textdy_pt, text, privatedata.textattrs)
+
+    def key_pt(self, privatedata, sharedata, graph, x_pt, y_pt, width_pt, height_pt):
+        raise RuntimeError("Style currently doesn't provide a graph key")
 
 
-class arrow(_style):
+class arrow(_styleneedingpointpos):
+
+    needsdata = ["vpos", "vposmissing", "vposvalid"]
 
     defaultlineattrs = []
     defaultarrowattrs = []
 
-    def __init__(self, linelength=0.25*unit.v_cm, arrowsize=0.15*unit.v_cm, lineattrs=[], arrowattrs=[], epsilon=1e-10):
+    def __init__(self, linelength=0.25*unit.v_cm, arrowsize=0.15*unit.v_cm, lineattrs=[], arrowattrs=[], epsilon=1e-5):
         self.linelength = linelength
         self.arrowsize = arrowsize
         self.lineattrs = lineattrs
         self.arrowattrs = arrowattrs
         self.epsilon = epsilon
 
-    def setdata(self, graph, columns, styledata):
-        if len(graph.axisnames) != 2:
-            raise TypeError("arrow style restricted on two-dimensional graphs")
-        columns = columns.copy()
-        styledata.xaxis, styledata.xindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % graph.axisnames[0]))
-        styledata.yaxis, styledata.yindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % graph.axisnames[1]))
-        styledata.sizeindex = columns["size"]
-        del columns["size"]
-        styledata.angleindex = columns["angle"]
-        del columns["angle"]
-        return columns
+    def columns(self, privatedata, sharedata, graph, columns):
+        if len(graph.axesnames) != 2:
+            raise ValueError("arrow style restricted on two-dimensional graphs")
+        if "size" not in columns:
+            raise ValueError("size missing")
+        if "angle" not in columns:
+            raise ValueError("angle missing")
+        return ["size", "angle"] + _styleneedingpointpos.columns(self, privatedata, sharedata, graph, columns)
 
-    def adjustaxes(self, points, columns, styledata):
-        if styledata.xindex in columns:
-            styledata.xaxis.adjustrange(points, styledata.xindex)
-        if styledata.yindex in columns:
-            styledata.yaxis.adjustrange(points, styledata.yindex)
-
-    def selectstyle(self, selectindex, selecttotal, styledata):
+    def selectstyle(self, privatedata, sharedata, graph, selectindex, selecttotal):
         if self.lineattrs is not None:
-            styledata.lineattrs = attr.selectattrs(self.defaultlineattrs + self.lineattrs, selectindex, selecttotal)
+            privatedata.lineattrs = attr.selectattrs(self.defaultlineattrs + self.lineattrs, selectindex, selecttotal)
         else:
-            styledata.lineattrs = None
+            privatedata.lineattrs = None
         if self.arrowattrs is not None:
-            styledata.arrowattrs = attr.selectattrs(self.defaultarrowattrs + self.arrowattrs, selectindex, selecttotal)
+            privatedata.arrowattrs = attr.selectattrs(self.defaultarrowattrs + self.arrowattrs, selectindex, selecttotal)
         else:
-            styledata.arrowattrs = None
+            privatedata.arrowattrs = None
 
-    def drawpoints(self, points, graph, styledata):
-        if styledata.lineattrs is not None and styledata.arrowattrs is not None:
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        privatedata.arrowcanvas = canvas.canvas()
+
+    def drawpoint(self, privatedata, sharedata, graph):
+        if privatedata.lineattrs is not None and privatedata.arrowattrs is not None and sharedata.vposvalid:
             linelength_pt = unit.topt(self.linelength)
-            for point in points:
-                xpos, ypos = graph.pos_pt(point[styledata.xindex], point[styledata.yindex], xaxis=styledata.xaxis, yaxis=styledata.yaxis)
-                if point[styledata.sizeindex] > self.epsilon:
-                    dx = math.cos(point[styledata.angleindex]*math.pi/180)
-                    dy = math.sin(point[styledata.angleindex]*math.pi/180)
-                    x1 = xpos-0.5*dx*linelength_pt*point[styledata.sizeindex]
-                    y1 = ypos-0.5*dy*linelength_pt*point[styledata.sizeindex]
-                    x2 = xpos+0.5*dx*linelength_pt*point[styledata.sizeindex]
-                    y2 = ypos+0.5*dy*linelength_pt*point[styledata.sizeindex]
-                    graph.stroke(path.line_pt(x1, y1, x2, y2), styledata.lineattrs +
-                                 [deco.earrow(styledata.arrowattrs, size=self.arrowsize*point[styledata.sizeindex])])
+            x_pt, y_pt = graph.vpos_pt(*sharedata.vpos)
+            try:
+                angle = sharedata.point["angle"] + 0.0
+                size = sharedata.point["size"] + 0.0
+            except:
+                pass
+            else:
+                if sharedata.point["size"] > self.epsilon:
+                    dx = math.cos(angle*math.pi/180)
+                    dy = math.sin(angle*math.pi/180)
+                    x1 = x_pt-0.5*dx*linelength_pt*size
+                    y1 = y_pt-0.5*dy*linelength_pt*size
+                    x2 = x_pt+0.5*dx*linelength_pt*size
+                    y2 = y_pt+0.5*dy*linelength_pt*size
+                    privatedata.arrowcanvas.stroke(path.line_pt(x1, y1, x2, y2), privatedata.lineattrs +
+                                                 [deco.earrow(privatedata.arrowattrs, size=self.arrowsize*size)])
+
+    def donedrawpoints(self, privatedata, sharedata, graph):
+        graph.insert(privatedata.arrowcanvas)
+
+    def key_pt(self, privatedata, sharedata, graph, x_pt, y_pt, width_pt, height_pt):
+        raise RuntimeError("Style currently doesn't provide a graph key")
 
 
 class rect(_style):
 
-    def __init__(self, palette=color.palette.Gray):
+    needsdata = ["vrange", "vrangeminmissing", "vrangemaxmissing"]
+
+    def __init__(self, palette=color.palette.Grey):
         self.palette = palette
 
-    def setdata(self, graph, columns, styledata):
-        if len(graph.axisnames) != 2:
+    def columns(self, privatedata, sharedata, graph, columns):
+        if len(graph.axesnames) != 2:
             raise TypeError("arrow style restricted on two-dimensional graphs")
-        columns = columns.copy()
-        styledata.xaxis, styledata.xminindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)min$" % graph.axisnames[0]))
-        styledata.yaxis, styledata.yminindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)min$" % graph.axisnames[1]))
-        xaxis, styledata.xmaxindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)max$" % graph.axisnames[0]))
-        yaxis, styledata.ymaxindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)max$" % graph.axisnames[1]))
-        if xaxis != styledata.xaxis or yaxis != styledata.yaxis:
-            raise ValueError("min/max values should use the same axes")
-        styledata.colorindex = columns["color"]
-        del columns["color"]
-        return columns
+        if "color" not in columns:
+            raise ValueError("color missing")
+        if len(sharedata.vrangeminmissing) + len(sharedata.vrangemaxmissing):
+            raise ValueError("range columns incomplete")
+        return ["color"]
 
-    def selectstyle(self, selectindex, selecttotal, styledata):
-        pass
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        privatedata.rectcanvas = graph.insert(canvas.canvas())
+        privatedata.lastcolorvalue = None
 
-    def adjustaxes(self, points, columns, styledata):
-        if styledata.xminindex in columns:
-            styledata.xaxis.adjustrange(points, styledata.xminindex)
-        if styledata.xmaxindex in columns:
-            styledata.xaxis.adjustrange(points, styledata.xmaxindex)
-        if styledata.yminindex in columns:
-            styledata.yaxis.adjustrange(points, styledata.yminindex)
-        if styledata.ymaxindex in columns:
-            styledata.yaxis.adjustrange(points, styledata.ymaxindex)
-
-    def drawpoints(self, points, graph, styledata):
-        # TODO: bbox shortcut
-        c = graph.insert(canvas.canvas())
-        lastcolorvalue = None
-        for point in points:
-            try:
-                xvmin = styledata.xaxis.convert(point[styledata.xminindex])
-                xvmax = styledata.xaxis.convert(point[styledata.xmaxindex])
-                yvmin = styledata.yaxis.convert(point[styledata.yminindex])
-                yvmax = styledata.yaxis.convert(point[styledata.ymaxindex])
-                colorvalue = point[styledata.colorindex]
-                if colorvalue != lastcolorvalue:
-                    color = self.palette.getcolor(point[styledata.colorindex])
-            except:
-                continue
-            if ((xvmin < 0 and xvmax < 0) or (xvmin > 1 and xvmax > 1) or
-                (yvmin < 0 and yvmax < 0) or (yvmin > 1 and yvmax > 1)):
-                continue
+    def drawpoint(self, privatedata, sharedata, graph):
+        xvmin = sharedata.vrange[0][0]
+        xvmax = sharedata.vrange[0][1]
+        yvmin = sharedata.vrange[1][0]
+        yvmax = sharedata.vrange[1][1]
+        if (xvmin is not None and xvmin < 1 and
+            xvmax is not None and xvmax > 0 and
+            yvmin is not None and yvmin < 1 and
+            yvmax is not None and yvmax > 0):
             if xvmin < 0:
                 xvmin = 0
-            elif xvmin > 1:
-                xvmin = 1
-            if xvmax < 0:
-                xvmax = 0
             elif xvmax > 1:
                 xvmax = 1
             if yvmin < 0:
                 yvmin = 0
-            elif yvmin > 1:
-                yvmin = 1
-            if yvmax < 0:
-                yvmax = 0
             elif yvmax > 1:
                 yvmax = 1
             p = graph.vgeodesic(xvmin, yvmin, xvmax, yvmin)
@@ -691,150 +837,228 @@ class rect(_style):
             p.append(graph.vgeodesic_el(xvmax, yvmax, xvmin, yvmax))
             p.append(graph.vgeodesic_el(xvmin, yvmax, xvmin, yvmin))
             p.append(path.closepath())
-            if colorvalue != lastcolorvalue:
-                c.set([color])
-            c.fill(p)
+            colorvalue = sharedata.point["color"]
+            try:
+                if colorvalue != privatedata.lastcolorvalue:
+                    privatedata.rectcanvas.set([self.palette.getcolor(colorvalue)])
+            except:
+                pass
+            else:
+                privatedata.rectcanvas.fill(p)
 
-class bar(_style):
+    def key_pt(self, privatedata, sharedata, graph, x_pt, y_pt, width_pt, height_pt):
+        raise RuntimeError("Style currently doesn't provide a graph key")
+
+
+class barpos(_style):
+
+    providesdata = ["vpos", "vposmissing", "vposavailable", "vposvalid", "vbarrange", "barcolumns", "barvalueindex", "stackedbar"]
 
     defaultfrompathattrs = []
-    defaultbarattrs = [color.palette.Rainbow, deco.stroked([color.gray.black])]
 
-    def __init__(self, fromvalue=None, frompathattrs=[], barattrs=[], subnames=None, epsilon=1e-10):
+    def __init__(self, fromvalue=None, frompathattrs=[], subindex=0, subnames=None, epsilon=1e-10):
+        # NOTE subindex is a perspective for higher dimensional plots
+        #      (just ignore it for the moment -- we don't even need to document about it)
         self.fromvalue = fromvalue
         self.frompathattrs = frompathattrs
-        self.barattrs = barattrs
+        self.subindex = subindex
         self.subnames = subnames
         self.epsilon = epsilon
 
-    def setdata(self, graph, columns, styledata):
-        # TODO: remove limitation to 2d graphs
-        if len(graph.axisnames) != 2:
-            raise TypeError("arrow style currently restricted on two-dimensional graphs")
-        columns = columns.copy()
-        xvalue = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % graph.axisnames[0]))
-        yvalue = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % graph.axisnames[1]))
-        if (xvalue is None and yvalue is None) or (xvalue is not None and yvalue is not None):
-            raise TypeError("must specify exactly one value axis")
-        if xvalue is not None:
-            styledata.valuepos = 0
-            styledata.nameaxis, styledata.nameindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)name$" % graph.axisnames[1]))
-            styledata.valueaxis = xvalue[0]
-            styledata.valueindices = [xvalue[1]]
+    def columns(self, privatedata, sharedata, graph, columns):
+        sharedata.barcolumns = []
+        sharedata.barvalueindex = None
+        for dimension, axisnames in enumerate(graph.axesnames):
+            found = 0
+            for axisname in axisnames:
+                if axisname in columns:
+                    if sharedata.barvalueindex is not None:
+                        raise ValueError("multiple values")
+                    sharedata.barvalueindex = dimension
+                    sharedata.barcolumns.append(axisname)
+                    found += 1
+                if (axisname + "name") in columns:
+                    sharedata.barcolumns.append(axisname + "name")
+                    found += 1
+                if found > 1:
+                    raise ValueError("multiple names")
+            if not found:
+                raise ValueError("value/name missing")
+        if sharedata.barvalueindex is None:
+            raise ValueError("missing value")
+        if self.subindex >= sharedata.barvalueindex:
+            privatedata.barpossubindex = self.subindex + 1
         else:
-            styledata.valuepos = 1
-            styledata.nameaxis, styledata.nameindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)name$" % graph.axisnames[0]))
-            styledata.valueaxis = yvalue[0]
-            styledata.valueindices = [yvalue[1]]
-        i = 1
-        while 1:
-            try:
-                valueaxis, valueindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)stack%i$" % (graph.axisnames[styledata.valuepos], i)))
-            except:
-                break
-            if styledata.valueaxis != valueaxis:
-                raise ValueError("different value axes for stacked bars")
-            styledata.valueindices.append(valueindex)
-            i += 1
-        return columns
+            privatedata.barpossubindex = self.subindex
+        sharedata.vposmissing = []
+        return sharedata.barcolumns
 
-    def selectstyle(self, selectindex, selecttotal, styledata):
-        if selectindex:
-            styledata.frompathattrs = None
+    def selectstyle(self, privatedata, sharedata, graph, selectindex, selecttotal):
+        if selecttotal == 1:
+            if self.subnames is not None:
+                raise ValueError("subnames set for single-bar data")
+            privatedata.barpossubname = []
         else:
-            styledata.frompathattrs = self.defaultfrompathattrs + self.frompathattrs
-        if selecttotal > 1:
-            if self.barattrs is not None:
-                styledata.barattrs = attr.selectattrs(self.defaultbarattrs + self.barattrs, selectindex, selecttotal)
+            if self.subnames is not None:
+                privatedata.barpossubname = [self.subnames[selectindex]]
             else:
-                styledata.barattrs = None
+                privatedata.barpossubname = [selectindex]
+
+    def adjustaxis(self, privatedata, sharedata, graph, column, data, index):
+        try:
+            i = sharedata.barcolumns.index(column)
+        except ValueError:
+            pass
         else:
-            styledata.barattrs = self.defaultbarattrs + self.barattrs
-        styledata.selectindex = selectindex
-        styledata.selecttotal = selecttotal
-        if styledata.selecttotal != 1 and self.subnames is not None:
-            raise ValueError("subnames not allowed when iterating over bars")
-
-    def adjustaxes(self, points, columns, styledata):
-        if styledata.nameindex in columns:
-            if styledata.selecttotal == 1:
-                styledata.nameaxis.adjustrange(points, styledata.nameindex, subnames=self.subnames)
+            if i == sharedata.barvalueindex:
+                if self.fromvalue is not None:
+                    graph.axes[sharedata.barcolumns[i]].adjustrange([self.fromvalue], None)
+                graph.axes[sharedata.barcolumns[i]].adjustrange(data, index)
             else:
-                for i in range(styledata.selecttotal):
-                    styledata.nameaxis.adjustrange(points, styledata.nameindex, subnames=[i])
-        for valueindex in styledata.valueindices:
-            if valueindex in columns:
-                styledata.valueaxis.adjustrange(points, valueindex)
+                if i == privatedata.barpossubindex:
+                    graph.axes[sharedata.barcolumns[i][:-4]].adjustrange(data, index, privatedata.barpossubname)
+                else:
+                    graph.axes[sharedata.barcolumns[i][:-4]].adjustrange(data, index)
 
-    def drawpoints(self, points, graph, styledata):
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        sharedata.vpos = [None]*(len(sharedata.barcolumns))
+        sharedata.vbarrange = [[None for i in xrange(2)] for x in sharedata.barcolumns]
+        sharedata.stackedbar = sharedata.stackedbardraw = 0
+
         if self.fromvalue is not None:
-            vfromvalue = styledata.valueaxis.convert(self.fromvalue)
-            if vfromvalue < -self.epsilon:
-                vfromvalue = 0
-            if vfromvalue > 1 + self.epsilon:
-                vfromvalue = 1
-            if styledata.frompathattrs is not None and vfromvalue > self.epsilon and vfromvalue < 1 - self.epsilon:
-                if styledata.valuepos:
-                    p = graph.vgeodesic(0, vfromvalue, 1, vfromvalue)
-                else:
-                    p = graph.vgeodesic(vfromvalue, 0, vfromvalue, 1)
-                graph.stroke(p, styledata.frompathattrs)
+            privatedata.vfromvalue = graph.axes[sharedata.barcolumns[sharedata.barvalueindex][0]].convert(self.fromvalue)
+            if privatedata.vfromvalue < 0:
+                privatedata.vfromvalue = 0
+            if privatedata.vfromvalue > 1:
+                privatedata.vfromvalue = 1
+            if self.frompathattrs is not None:
+                # TODO 2d only
+                graph.stroke(graph.axespos[sharedata.barcolumns[sharedata.barvalueindex][0]].vgridpath(privatedata.vfromvalue),
+                             self.defaultfrompathattrs + self.frompathattrs)
         else:
-            vfromvalue = 0
-        l = len(styledata.valueindices)
-        if l > 1:
-            barattrslist = []
-            for i in range(l):
-                barattrslist.append(attr.selectattrs(styledata.barattrs, i, l))
-        else:
-            barattrslist = [styledata.barattrs]
-        for point in points:
-            vvaluemax = vfromvalue
-            for valueindex, barattrs in zip(styledata.valueindices, barattrslist):
-                vvaluemin = vvaluemax
+            privatedata.vfromvalue = 0
+
+    def drawpoint(self, privatedata, sharedata, graph):
+        sharedata.vposavailable = sharedata.vposvalid = 1
+        for i, barname in enumerate(sharedata.barcolumns):
+            if i == sharedata.barvalueindex:
+                sharedata.vbarrange[i][0] = privatedata.vfromvalue
                 try:
-                    vvaluemax = styledata.valueaxis.convert(point[valueindex])
-                except:
-                    continue
+                    sharedata.vpos[i] = sharedata.vbarrange[i][1] = graph.axes[barname].convert(sharedata.point[barname])
+                except (ArithmeticError, ValueError, TypeError):
+                    sharedata.vpos[i] = sharedata.vbarrange[i][1] = None
+            else:
+                for j in xrange(2):
+                    try:
+                        if i == privatedata.barpossubindex:
+                            sharedata.vbarrange[i][j] = graph.axes[barname[:-4]].convert(([sharedata.point[barname]] + privatedata.barpossubname + [j]))
+                        else:
+                            sharedata.vbarrange[i][j] = graph.axes[barname[:-4]].convert((sharedata.point[barname], j))
+                    except (ArithmeticError, ValueError, TypeError):
+                        sharedata.vbarrange[i][j] = None
+                try:
+                    sharedata.vpos[i] = 0.5*(sharedata.vbarrange[i][0]+sharedata.vbarrange[i][1])
+                except (ArithmeticError, ValueError, TypeError):
+                    sharedata.vpos[i] = None
+            if sharedata.vpos[i] is None:
+                sharedata.vposavailable = sharedata.vposvalid = 0
+            elif sharedata.vpos[i] < -self.epsilon or sharedata.vpos[i] > 1+self.epsilon:
+                sharedata.vposvalid = 0
 
-                if styledata.selecttotal == 1:
-                    try:
-                        vnamemin = styledata.nameaxis.convert((point[styledata.nameindex], 0))
-                    except:
-                        continue
-                    try:
-                        vnamemax = styledata.nameaxis.convert((point[styledata.nameindex], 1))
-                    except:
-                        continue
-                else:
-                    try:
-                        vnamemin = styledata.nameaxis.convert((point[styledata.nameindex], styledata.selectindex, 0))
-                    except:
-                        continue
-                    try:
-                        vnamemax = styledata.nameaxis.convert((point[styledata.nameindex], styledata.selectindex, 1))
-                    except:
-                        continue
+registerdefaultprovider(barpos(), ["vbarrange", "barcolumns", "barvalueindex"])
 
-                if styledata.valuepos:
-                    p = graph.vgeodesic(vnamemin, vvaluemin, vnamemin, vvaluemax)
-                    p.append(graph.vgeodesic_el(vnamemin, vvaluemax, vnamemax, vvaluemax))
-                    p.append(graph.vgeodesic_el(vnamemax, vvaluemax, vnamemax, vvaluemin))
-                    p.append(graph.vgeodesic_el(vnamemax, vvaluemin, vnamemin, vvaluemin))
-                    p.append(path.closepath())
-                else:
-                    p = graph.vgeodesic(vvaluemin, vnamemin, vvaluemin, vnamemax)
-                    p.append(graph.vgeodesic_el(vvaluemin, vnamemax, vvaluemax, vnamemax))
-                    p.append(graph.vgeodesic_el(vvaluemax, vnamemax, vvaluemax, vnamemin))
-                    p.append(graph.vgeodesic_el(vvaluemax, vnamemin, vvaluemin, vnamemin))
-                    p.append(path.closepath())
-                if barattrs is not None:
-                    graph.fill(p, barattrs)
 
-    def key_pt(self, c, x_pt, y_pt, width_pt, height_pt, styledata):
-        l = len(styledata.valueindices)
-        if l > 1:
-            for i in range(l):
-                c.fill(path.rect_pt(x_pt+i*width_pt/l, y_pt, width_pt/l, height_pt), attr.selectattrs(styledata.barattrs, i, l))
+class stackedbarpos(_style):
+
+    # provides no additional data, but needs some data (and modifies some of them)
+    needsdata = ["vbarrange", "barcolumns", "barvalueindex"]
+
+    def __init__(self, stackname, epsilon=1e-10):
+        self.stackname = stackname
+        self.epsilon = epsilon
+
+    def columns(self, privatedata, sharedata, graph, columns):
+        if self.stackname not in columns:
+            raise ValueError("stackname column missing")
+        return [self.stackname]
+
+    def adjustaxis(self, privatedata, sharedata, graph, column, data, index):
+        if column == self.stackname:
+            graph.axes[sharedata.barcolumns[sharedata.barvalueindex]].adjustrange(data, index)
+
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        if sharedata.stackedbardraw: # do not count the start bar when not gets painted
+            sharedata.stackedbar += 1
+
+    def drawpoint(self, privatedata, sharedata, graph):
+        sharedata.vbarrange[sharedata.barvalueindex][0] = sharedata.vbarrange[sharedata.barvalueindex][1]
+        try:
+            sharedata.vpos[sharedata.barvalueindex] = sharedata.vbarrange[sharedata.barvalueindex][1] = graph.axes[sharedata.barcolumns[sharedata.barvalueindex]].convert(sharedata.point[self.stackname])
+        except (ArithmeticError, ValueError, TypeError):
+            sharedata.vpos[sharedata.barvalueindex] = sharedata.vbarrange[sharedata.barvalueindex][1] = None
+            sharedata.vposavailable = sharedata.vposvalid = 0
         else:
-            c.fill(path.rect_pt(x_pt, y_pt, width_pt, height_pt), styledata.barattrs)
+            if not sharedata.vposavailable or not sharedata.vposvalid:
+                sharedata.vposavailable = sharedata.vposvalid = 1
+                for v in sharedata.vpos:
+                    if v is None:
+                        sharedata.vposavailable = sharedata.vposvalid = 0
+                        break
+                    if v < -self.epsilon or v > 1+self.epsilon:
+                        sharedata.vposvalid = 0
+
+
+class bar(_style):
+
+    needsdata = ["vbarrange"]
+
+    defaultbarattrs = [color.palette.Rainbow, deco.stroked([color.grey.black])]
+
+    def __init__(self, barattrs=[]):
+        self.barattrs = barattrs
+
+    def columns(self, privatedata, sharedata, graph, columns):
+        if len(graph.axesnames) != 2:
+            raise TypeError("bar style restricted on two-dimensional graphs")
+        return []
+
+    def selectstyle(self, privatedata, sharedata, graph, selectindex, selecttotal):
+        if selecttotal > 1:
+            privatedata.barattrs = attr.selectattrs(self.defaultbarattrs + self.barattrs, selectindex, selecttotal)
+        else:
+            privatedata.barattrs = self.defaultbarattrs + self.barattrs
+
+    def initdrawpoints(self, privatedata, sharedata, graph):
+        privatedata.rectcanvas = graph.insert(canvas.canvas())
+        sharedata.stackedbardraw = 1
+        privatedata.stackedbar = sharedata.stackedbar
+
+    def drawpoint(self, privatedata, sharedata, graph):
+        xvmin = sharedata.vbarrange[0][0]
+        xvmax = sharedata.vbarrange[0][1]
+        yvmin = sharedata.vbarrange[1][0]
+        yvmax = sharedata.vbarrange[1][1]
+        if (xvmin is not None and xvmin < 1 and
+            xvmax is not None and xvmax > 0 and
+            yvmin is not None and yvmin < 1 and
+            yvmax is not None and yvmax > 0):
+            if xvmin < 0:
+                xvmin = 0
+            elif xvmax > 1:
+                xvmax = 1
+            if yvmin < 0:
+                yvmin = 0
+            elif yvmax > 1:
+                yvmax = 1
+            p = graph.vgeodesic(xvmin, yvmin, xvmax, yvmin)
+            p.append(graph.vgeodesic_el(xvmax, yvmin, xvmax, yvmax))
+            p.append(graph.vgeodesic_el(xvmax, yvmax, xvmin, yvmax))
+            p.append(graph.vgeodesic_el(xvmin, yvmax, xvmin, yvmin))
+            p.append(path.closepath())
+            privatedata.rectcanvas.fill(p, privatedata.barattrs)
+
+    def key_pt(self, privatedata, sharedata, graph, x_pt, y_pt, width_pt, height_pt):
+        selectindex = privatedata.stackedbar
+        selecttotal = sharedata.stackedbar + 1
+        graph.fill(path.rect_pt(x_pt + width_pt*selectindex/float(selecttotal), y_pt, width_pt/float(selecttotal), height_pt), privatedata.barattrs)
+

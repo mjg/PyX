@@ -1,5 +1,6 @@
-\chapter{Graphs\label{graph}}
-\section{Introduction}
+\chapter{Graphs}
+\label{graph}
+\section{Introduction} % {{{
 \PyX{} can be used for data and function plotting. At present only
 x-y-graphs are supported. However, the component architecture of the
 graph system described in section \ref{graph:components} allows for
@@ -7,12 +8,12 @@ additional graph geometries while reusing most of the existing
 components.
 
 Creating a graph splits into two basic steps. First you have to create
-a graph instance. The most simples form would look like:
+a graph instance. The most simple form would look like:
 \begin{verbatim}
 from pyx import *
 g = graph.graphxy(width=8)
 \end{verbatim}
-The graph instance \code{g} created in this example can than be used
+The graph instance \code{g} created in this example can then be used
 to actually plot something into the graph. Suppose you have some data
 in a file \file{graph.dat} you want to plot. The content of the file
 could look like:
@@ -22,13 +23,13 @@ To plot these data into the graph \code{g} you must perform:
 g.plot(graph.data.file("graph.dat", x=1, y=2))
 \end{verbatim}
 The method \method{plot()} takes the data to be plotted and optionally
-a graph style to be used to plot the data. When no style is provided,
-a default style defined by the data instance is used. For data read
-from a file by an instance of \class{graph.data.file}, the default are
-symbols. When instantiating \class{graph.data.file}, you not only
-specify the file name, but also a mapping from columns to axis names
-and other information the style might use (\emph{e.g.} data for error
-bars for the symbol style).
+a list of graph styles to be used to plot the data. When no styles are
+provided, a default style defined by the data instance is used. For
+data read from a file by an instance of \class{graph.data.file}, the
+default are symbols. When instantiating \class{graph.data.file}, you
+not only specify the file name, but also a mapping from columns to
+axis names and other information the styles might make use of
+(\emph{e.g.} data for error bars to be used by the errorbar style).
 
 While the graph is already created by that, we still need to perform a
 write of the result into a file. Since the graph instance is a canvas,
@@ -36,8 +37,7 @@ we can just call its \method{writeEPSfile()} method.
 \begin{verbatim}
 g.writeEPSfile("graph")
 \end{verbatim}
-will create the file \file{graph.eps} as shown in
-figure~\ref{fig:graph}.
+The result \file{graph.eps} is shown in figure~\ref{fig:graph}.
 
 \begin{figure}[ht]
 \centerline{\includegraphics{graph}}
@@ -45,36 +45,54 @@ figure~\ref{fig:graph}.
 \label{fig:graph}
 \end{figure}
 
-Instead of plotting data from a file, we could also use other data
-sources like functions. The procedure would be as before, but we would
-place different data into \method{plot()}:
+Instead of plotting data from a file, other data source are available
+as well. For example function data is created and placed into
+\method{plot()} by the following line:
 \begin{verbatim}
 g.plot(graph.data.function("y=x**2"))
 \end{verbatim}
-You can plot different data into a single graph by calling the
-\method{plot()} several times. Thus the command above might just be
-inserted before \method{writeEPSfile()} of the original example.
-Note that a call to \method{plot()} will fail once you forced the
-graph to ``finish'' itself. This happens automatically, when you
-write the output. Thus it is not an option to call \method{plot()}
+You can plot different data in a single graph by calling
+\method{plot()} several times before \method{writeEPSfile()}. Note
+that a calling \method{plot()} will fail once a graph was forced to
+``finish'' itself. This happens automatically, when the graph is
+written to a file. Thus it is not an option to call \method{plot()}
 after \method{writeEPSfile()}. The topic of the finalization of a
-graph is addressed in more detail in section~\ref{graph:graph}. As
-you can see in figure~\ref{fig:graph2}, a function is plotted as a
-line by default.
+graph is addressed in more detail in section~\ref{graph:graph}. As you
+can see in figure~\ref{fig:graph2}, a function is plotted as a line by
+default.
+
 \begin{figure}[ht]
 \centerline{\includegraphics{graph2}}
 \caption{Plotting data from a file together with a function.}
 \label{fig:graph2}
 \end{figure}
 
-\section{Component architecture \label{graph:components}}
+While the axes ranges got adjusted automatically in the previous
+example, they might be fixed by keyword options in axes constructors.
+Plotting only a function will need such a setting at least in the
+variable coordinate. The following code also shows how to set a
+logathmic axis in y-direction:
+
+\verbatiminput{graph3.py}
+
+The result is shown in figure~\ref{fig:graph3}.
+
+\begin{figure}[ht]
+\centerline{\includegraphics{graph3}}
+\caption{Plotting a function for a given axis range and use a
+logarithmic y-axis.}
+\label{fig:graph3}
+\end{figure} % }}}
+
+\section{Component architecture} % {{{
+\label{graph:components}
 
 Creating a graph involves a variety of tasks, which thus can be
 separated into components without significant additional costs.
 This structure manifests itself also in the \PyX{} source, where there
 are different modules for the different tasks. They interact by some
-welldefined interfaces. They certainly has to be completed and
-stabilized in its details, but the basic structure came up in the
+well-defined interfaces. They certainly have to be completed and
+stabilized in their details, but the basic structure came up in the
 continuous development quite clearly. The basic parts of a graph are:
 
 \begin{definitions}
@@ -82,22 +100,23 @@ continuous development quite clearly. The basic parts of a graph are:
   Defines the geometry of the graph by means of graph coordinates with
   range [0:1]. Keeps lists of plotted data, axes \emph{etc.}
 \term{data}
-  Produces or prepare data to be plotted in graphs.
+  Produces or prepares data to be plotted in graphs.
 \term{style}
-  Performs the plotting of the data into the graph. It get data,
-  convert them via the axes into graph coordinates and uses the graph
+  Performs the plotting of the data into the graph. It gets data,
+  converts them via the axes into graph coordinates and uses the graph
   to finally plot the data with respect to the graph geometry methods.
 \term{key}
   Responsible for the graph keys.
 \term{axis}
   Creates axes for the graph, which take care of the mapping from data
   values to graph coordinates. Because axes are also responsible for
-  creating ticks and labels, showing up in the graph themselfs and
-  other things, this task is splitted into several independend
+  creating ticks and labels, showing up in the graph themselves and
+  other things, this task is splitted into several independent
   subtasks. Axes are discussed separately in chapter~\ref{axis}.
-\end{definitions}
+\end{definitions} % }}}
 
-\section{X-Y-Graphs\label{graph:graph}}
+\section{Module graph/graph: X-Y-Graphs} % {{{
+\label{graph:graph}
 
 \declaremodule{}{graph.graph}
 \modulesynopsis{Graph geometry}
@@ -107,9 +126,9 @@ However, there is a shortcut to access this class via
 \code{graph.graphxy}.
 
 \begin{classdesc}{graphxy}{xpos=0, ypos=0, width=None, height=None,
-ratio=goldenmean, key=None, backgroundattrs=None, axesdist="0.8 cm",
-**axes}
-  This class provides a x-y-graph. A graph instance is also a full
+ratio=goldenmean, key=None, backgroundattrs=None,
+axesdist=0.8*unit.v\_cm, **axes}
+  This class provides an x-y-graph. A graph instance is also a fully
   functional canvas.
 
   The position of the graph on its own canvas is specified by
@@ -118,7 +137,7 @@ ratio=goldenmean, key=None, backgroundattrs=None, axesdist="0.8 cm",
   the size of the graph area not taking into account the additional
   space needed for the axes. Note that you have to specify at least
   \var{width} or \var{height}. \var{ratio} will be used as the ratio
-  between \var{width} and \var{height} when only one of these are
+  between \var{width} and \var{height} when only one of these is
   provided.
 
   \var{key} can be set to a \class{graph.key.key} instance to create
@@ -133,18 +152,18 @@ ratio=goldenmean, key=None, backgroundattrs=None, axesdist="0.8 cm",
 
   \var{**axes} receives axes instances. Allowed keywords (axes names)
   are \code{x}, \code{x2}, \code{x3}, \emph{etc.} and \code{y},
-  \code{y2}, \code{y3}, \emph{etc.} When not providing a \code{x} or
+  \code{y2}, \code{y3}, \emph{etc.} When not providing an \code{x} or
   \code{y} axis, linear axes instances will be used automatically.
   When not providing a \code{x2} or \code{y2} axis, linked axes to the
   \code{x} and \code{y} axes are created automatically. You may set
   those axes to \code{None} to disable the automatic creation of axes.
-  The even numbered axes are plotted at the top (\code{y} axes) and
-  right (\code{x} axes) while the others are plotted at the bottom
+  The even numbered axes are plotted at the top (\code{x} axes) and
+  right (\code{y} axes) while the others are plotted at the bottom
   (\code{x} axes) and left (\code{y} axes) in ascending order each.
-  Axes instances should be used once only.
+  Axes instances should only be used once.
 \end{classdesc}
 
-Some instance attributes might be usefull for outside read-access.
+Some instance attributes might be useful for outside read-access.
 Those are:
 
 \begin{memberdesc}{axes}
@@ -158,17 +177,18 @@ Those are:
 To actually plot something into the graph, the following instance
 method \method{plot()} is provided:
 
-\begin{methoddesc}{plot}{data, style=None}
-  Adds \var{data} to the list of data to be plotted. Sets \var{style}
-  the be used for plotting the data. When \var{style} is \code{None},
-  the default style for the data as provided by \var{data} is used.
+\begin{methoddesc}{plot}{data, styles=None}
+  Adds \var{data} to the list of data to be plotted. Sets \var{styles}
+  to be used for plotting the data. When \var{styles} is \code{None},
+  the default styles for the data as provided by \var{data} is used.
 
   \var{data} should be an instance of any of the data described in
-  section~\ref{graph:data}. This instance should used once only.
+  section~\ref{graph:data}. This instance should only be used once.
 
-  When a style is used several times within the same graph instance,
-  it is kindly asked by the graph to iterate its appearence. Its up
-  to the style how this is performed.
+  When the same combination of styles (\emph{i.e.} the same
+  references) are used several times within the same graph instance,
+  the styles are kindly asked by the graph to iterate their
+  appearence. Its up to the styles how this is performed.
 
   Instead of calling the plot method several times with different
   \var{data} but the same style, you can use a list (or something
@@ -179,18 +199,18 @@ While a graph instance only collects data initially, at a certain
 point it must create the whole plot. Once this is done, further calls
 of \method{plot()} will fail. Usually you do not need to take care
 about the finalization of the graph, because it happens automatically
-once you write the plot into a file. However, sometime position
-methods (described below) are nice to be accessable. For that, at
-least the layout of the graph must be done. By calling the
-\method{do}-methods yourself you can also alter the order in which
-the graph is plotted. Multiple calls the any of the
+once you write the plot into a file. However, sometimes position
+methods (described below) are nice to be accessible. For that, at
+least the layout of the graph must have been finished. By calling the
+\method{do}-methods yourself you can also alter the order in which the
+graph components are plotted. Multiple calls to any of the
 \method{do}-methods have no effect (only the first call counts). The
 orginal order in which the \method{do}-methods are called is:
 
 \begin{methoddesc}{dolayout}{}
   Fixes the layout of the graph. As part of this work, the ranges of
   the axes are fitted to the data when the axes ranges are allowed to
-  addjust themselfs to the data ranges. The other \method{do}-methods
+  adjust themselves to the data ranges. The other \method{do}-methods
   ensure, that this method is always called first.
 \end{methoddesc}
 
@@ -234,7 +254,7 @@ The graph provides some methods to access its geometry:
 
 \begin{methoddesc}{vgeodesic}{vx1, vy1, vx2, vy2}
   Returns the geodesic between points \var{vx1}, \var{vy1} and
-  \var{vx1}, \var{vy1} as a path. All parameters are in graph
+  \var{vx2}, \var{vy2} as a path. All parameters are in graph
   coordinates with range [0:1]. For \class{graphxy} this is a straight
   line.
 \end{methoddesc}
@@ -244,7 +264,7 @@ The graph provides some methods to access its geometry:
   connect the two points.
 \end{methoddesc}
 
-% dirty hack to add a hole list of methods to the index:
+% dirty hack to add a whole list of methods to the index:
 \index{xbasepath()@\texttt{xbasepath()} (graphxy method)}
 \index{xvbasepath()@\texttt{xvbasepath()} (graphxy method)}
 \index{xgridpath()@\texttt{xgridpath()} (graphxy method)}
@@ -264,13 +284,14 @@ The graph provides some methods to access its geometry:
 
 Further geometry information is available by the \member{axespos}
 instance variable. Shortcuts to the \class{axispos} methods for the
-\code{x} and \code{y} axis become available after \method{dolayout()}
+\code{x}- and \code{y}-axis become available after \method{dolayout()}
 as \class{graphxy} methods \code{Xbasepath}, \code{Xvbasepath},
 \code{Xgridpath}, \code{Xvgridpath}, \code{Xtickpoint},
 \code{Xvtickpoint}, \code{Xtickdirection}, and \code{Xvtickdirection}
-where the prefix \code{X} stands for \code{x} and \code{y}.
+where the prefix \code{X} stands for \code{x} and \code{y}. % }}}
 
-\section{Data\label{graph:data}}
+\section{Module graph/data: Data} % {{{
+\label{graph:data}
 
 \declaremodule{}{graph.data}
 \modulesynopsis{Graph data}
@@ -278,7 +299,7 @@ where the prefix \code{X} stands for \code{x} and \code{y}.
 The following classes provide data for the \method{plot()} method of a
 graph. The classes are implemented in \module{graph.data}.
 
-\begin{classdesc}{file}{filename,
+\begin{classdesc}{file}{filename, % {{{
                         commentpattern=defaultcommentpattern,
                         columnpattern=defaultcolumnpattern,
                         stringpattern=defaultstringpattern,
@@ -293,9 +314,11 @@ graph. The classes are implemented in \module{graph.data}.
   line of the file. Lines matching \var{commentpattern} are ignored
   except for the column name search of the last non-emtpy comment line
   before the data. By default a line starting with one of the
-  characters \character{\#}, \character{\%}, or \character{!} are
-  treated as comments. A line is analysed by repeatingly matching
-  \var{stringpattern} and, whenever the stringpattern does not match
+  characters \character{\#}, \character{\%}, or \character{!} as well
+  as an empty line is treated as a comment.
+
+  A non-comment line is analysed by repeatedly matching
+  \var{stringpattern} and, whenever the stringpattern does not match,
   by \var{columnpattern}. When the \var{stringpattern} matches, the
   result is taken as the value for the next column without further
   transformations. When \var{columnpattern} matches, it is tried to
@@ -305,7 +328,7 @@ graph. The classes are implemented in \module{graph.data}.
   spaces or begin/end of line in the data file. Otherwise
   \character{\textquotedbl} is not taken to be special.
 
-  \var{skiphead} and \var{skipfoot} are numbers of data lines to be
+  \var{skiphead} and \var{skiptail} are numbers of data lines to be
   ignored at the beginning and end of the file while \var{every}
   selects only every \var{every} line from the data.
 
@@ -314,7 +337,7 @@ graph. The classes are implemented in \module{graph.data}.
   \var{**columns}. You may set \var{title} to \code{None} to disable
   the title.
 
-  \var{parser} is the parser for mathematical expression provided in
+  \var{parser} is the parser for mathematical expressions provided in
   \var{**columns}. When in doubt, this is probably uninteresting for
   you. \var{context} allows for accessing external variables and
   functions when evaluating mathematical expressions for columns. As
@@ -322,25 +345,33 @@ graph. The classes are implemented in \module{graph.data}.
 
   Finally, \var{columns} defines the data columns. To make it a bit
   more complicated, there are file column names and new created data
-  column names, namely the keywords of \var{**columns}. File column
-  names occure when the data file contains a comment line immediately
-  in front of the data. This line will be parsed skipping the comment
-  character (even if it occures multiple times) as if it would be
-  regular data, but it will not be converted to floats even if it
-  would be possible to convert them. The values of \var{**columns} can
-  refer to column numbers in the file (starting with \code{1}). The
-  column \code{0} is also available and contains the line number
-  starting from \code{1} not counting comment lines. Furthermore
-  values of \var{**columns} can be strings: file column names or
-  mathematical expressions. To refer to columns within mathematical
-  expressions you can also use file column names when they are valid
-  variable names or by the syntax \code{\$\textless
-  number\textgreater} or even \code{\$(\textless
-  expression\textgreater)}, where \code{\textless number\textgreater}
-  is a non-negative integer and \code{\textless
-  expression\textgreater} a valid mathematical expression itself. For
-  the later negative numbers count the columns from the end.
-  Example:
+  column names, namely the keys of the dictionary \var{**columns}.
+  Only the later, the data column names, are valid identifiers for the
+  data columns at later usage (by the graph styles).
+
+  File column names occur when the data file contains a comment line
+  immediately in front of the data (except for empty or empty comment
+  lines). This line will be parsed skipping the matched comment
+  identifier as if the line would be regular data, but it will not be
+  converted to floats even if it would be possible to convert the
+  items. The result is taken as file column names, \emph{i.e.} a
+  string representation for the columns in the file.
+
+  The values of \var{**columns} can refer to column numbers in the
+  file starting at \code{1}. The column \code{0} is also available
+  and contains the line number starting from \code{1} not counting
+  comment lines, but lines skiped by \var{skiphead}, \var{skiptail},
+  and \var{every}. Furthermore values of \var{**columns} can be
+  strings: file column names or complex mathematical expressions. To
+  refer to columns within mathematical expressions you can also use
+  file column names when they are valid variable names or by the
+  syntax \code{\$\textless number\textgreater} or even
+  \code{\$(\textless expression\textgreater)}, where \code{\textless
+  number\textgreater} is a non-negative integer and \code{\textless
+  expression\textgreater} a valid mathematical expression itself. In
+  those mathematical expressions the \var{context} is available, but
+  data from other columns are not. Negative numbers count the columns
+  from the end. Example:
   \begin{verbatim}
 graph.data.file("test.dat", a=1, b="B", c="2*B+$3")
   \end{verbatim}
@@ -350,16 +381,16 @@ graph.data.file("test.dat", a=1, b="B", c="2*B+$3")
 1.234 1 2
 5.678 3 4
   \end{verbatim}
-  The columns with name \samp{a}, \samp{b}, \samp{c} will become
-  \samp{[1.234, 5.678]}, \samp{[1.0, 3.0]}, and \samp{[4.0, 10.0]},
-  respectively.
+  The columns with name \code{"a"}, \code{"b"}, \code{"c"} will become
+  \code{"[1.234, 5.678]"}, \code{"[1.0, 3.0]"}, and \code{"[4.0,
+  10.0]"}, respectively.
 
-  When creating the several data instances accessing the same file,
+  When creating several data instances accessing the same file,
   the file is read only once. There is an inherent caching of the
   file contents.
 \end{classdesc}
 
-For the sake of completeness the default patterns:
+For the sake of completeness we list the default patterns:
 
 \begin{memberdesc}{defaultcommentpattern}
   \code{re.compile(r\textquotedbl (\#+|!+|\%+)\e s*\textquotedbl)}
@@ -371,34 +402,34 @@ For the sake of completeness the default patterns:
 
 \begin{memberdesc}{defaultstringpattern}
   \code{re.compile(r\textquotedbl(.*?)(\e s+|\$)\textquotedbl)}
-\end{memberdesc}
+\end{memberdesc} % }}}
 
-\begin{classdesc}{function}{expression, title=notitle,
+\begin{classdesc}{function}{expression, title=notitle, % {{{
                             min=None, max=None, points=100,
                             parser=mathtree.parser(),
                             context=\{\}}
   This class creates graph data from a function. \var{expression} is
   the mathematical expression of the function. It must also contain
   the result variable name by assignment. Thus a typical example looks
-  like \samp{y=sin(x)}.
+  like \code{"y=sin(x)"}.
 
   \var{title} is the title of the data to be used in the graph key. By
   default \var{expression} is used. You may set \var{title} to
   \code{None} to disable the title.
 
-  \var{min} and \var{max} give the range of the variable. If not set
-  the range spans the hole axis range. The axis range might be set
+  \var{min} and \var{max} give the range of the variable. If not set,
+  the range spans the whole axis range. The axis range might be set
   explicitly or implicitly by ranges of other data. \var{points} is
   the number of points for which the function is calculated. The
-  points are lineary choosen in terms of graph coordinates.
+  points are choosen linearly in terms of graph coordinates.
 
   \var{parser} is the parser for the mathematical expression. When in
   doubt, this is probably uninteresting for you. \var{context} allows
   for accessing external variables and functions. As an example you
   may use \code{context=locals()} or something similar.
 
-  Note when accessing external variables: When doing so, at first it
-  renders unclear, which of the variables should be used as the
+  Note when accessing external variables: In principle, it is unclear, 
+  which of the variables should be used as the
   dependent variable. The solution is, that there should be exactly
   one variable, which is a valid and used axis name.
   Example:
@@ -408,9 +439,9 @@ For the sake of completeness the default patterns:
   The result of this expression could just be passed to a graphs
   \method{plot()} method, since not only data instances but also lists
   of data instances are allowed.
-\end{classdesc}
+\end{classdesc} % }}}
 
-\begin{classdesc}{paramfunction}{varname, min, max, expression,
+\begin{classdesc}{paramfunction}{varname, min, max, expression, % {{{
                                  title=notitle, points=100,
                                  parser=mathtree.parser(),
                                  context=\{\}}
@@ -428,55 +459,39 @@ For the sake of completeness the default patterns:
   default \var{expression} is used. You may set \var{title} to
   \code{None} to disable the title.
 
-  \var{parser} is the parser for mathematical expression. When in
+  \var{parser} is the parser for mathematical expressions. When in
   doubt, this is probably uninteresting for you. \var{context} allows
   for accessing external variables and functions. As an example you
   may use \code{context=locals()} or something similar.
-\end{classdesc}
+\end{classdesc} % }}}
 
-\begin{classdesc}{list}{points, title="user provided list",
-                        maxcolumns=None, addlinenumbers=1, **columns}
-  This class creates graph data from external provided data.
-  \var{points} is a list of lines, where each line is a list of data
+\begin{classdesc}{list}{data, title="user provided list", % {{{
+                        addlinenumbers=1, **columns}
+  This class creates graph data from externally provided data.
+  \var{data} is a list of lines, where each line is a list of data
   values for the columns.
 
   \var{title} is the title of the data to be used in the graph key.
 
-  \var{maxcolumn} is the number of columns in the points list. If set
-  to \code{None}, the number of columns will be calculated by cycling
-  through the points. Each element of \var{points}, \emph{i.e.} each
-  line, will be checked and adjusted to the number of columns.
-
-  \var{addlinenumbers} is a boolean indicating whether line numbers
-  should be added or not. Note that the line numbers are storred in
-  column \code{0}. A transformation (see \class{data} below) will
-  always keep the first column. When not adding line numbers, you
-  should be aware, that the numbering in \var{**columns} becomes
-  different form the usual case, where the first column containing
-  data (not the line number) has column number \code{1}.
-
   The keywords of \var{**columns} become the data column names. The
   values are the column numbers starting from one, when
-  \var{addlinenumbers} is turned on (the zeroth column is the line
-  number then), while the column numbers starts from zero, when
-  \var{addlinenumbers} is switched off.
-\end{classdesc}
+  \var{addlinenumbers} is turned on (the zeroth column is added to
+  contain a line number in that case), while the column numbers starts
+  from zero, when \var{addlinenumbers} is switched off.
+\end{classdesc} % }}}
 
-\begin{classdesc}{data}{data, title=notitle, parser=dataparser(),
+\begin{classdesc}{data}{data, title=notitle, parser=dataparser(), % {{{
                         context={}, **columns}
   This class provides graph data out of other graph data. \var{data}
-  is the source of the data. All other paramters work like the equally
-  called parameters in \class{graph.data.file}. Indeed, the later is
-  build on top of this class by reading the file and caching its
+  is the source of the data. All other parameters work like the equally
+  called parameters in \class{graph.data.file}. Indeed, the latter is
+  built on top of this class by reading the file and caching its
   contents in a \class{graph.data.list} instance. The columns are then
-  selected by creating new data out of the existing data. Note that
-  the data itself is not copied as long as no new columns need to be
-  calculated.
-\end{classdesc}
+  selected by creating new data out of the existing data.
+\end{classdesc} % }}}
 
-\begin{classdesc}{conffile}{filename, title=notitle,
-                            parser=dataparser(), context={},
-                            **columns}
+\begin{classdesc}{conffile}{filename, title=notitle, parser=dataparser(), % {{{
+                            context={}, **columns}
   This class reads data from a config file with the file name
   \var{filename}. The format of a config file is described within the
   documentation of the \module{ConfigParser} module of the Python
@@ -487,84 +502,102 @@ For the sake of completeness the default patterns:
   file column names. All other parameters work as in
   \var{graph.data.file} and \var{graph.data.data} since they all use
   the same code.
-\end{classdesc}
+\end{classdesc} % }}} % }}}
 
-\section{Styles\label{graph:style}}
+\section{Module graph/style: Styles} % {{{
+\label{graph:style}
 
 \declaremodule{}{graph.style}
 \modulesynopsis{Graph style}
 
-Please note that we're talking about graph styles here. Those are
+Please note that we are talking about graph styles here. Those are
 responsible for plotting symbols, lines, bars and whatever else into a
 graph. Do not mix it up with path styles like the line width, the line
 style (solid, dashed, dotted \emph{etc.}) and others.
 
 The following classes provide styles to be used at the \method{plot()}
-method of a graph. The classes are implemented in \module{graph.style}.
+method of a graph. The plot method accepts a list of styles. By that
+you can combine several styles at the very same time.
 
-\begin{classdesc}{symbolline}{symbol=changecross, size="0.2 cm",
-                              errorscale=0.5, symbolattrs=[],
-                              errorbarattrs=[], lineattrs=[],
-                              epsilon=1e-10}
-  This class is a style for plot symbols, lines and errorbars into a
-  graph. \var{symbol} refers to a (changable) symbol method (see
-  below). The symbol is drawn at size \var{size} (a visual \PyX{}
-  length; also changeable) using \var{symbolattrs}. \var{symbolattrs}
-  are merged with the decorator \class{deco.stroked}. \var{errorscale}
-  is the size of the error bars compared to the symbol size.
-  \var{errorbarattrs} and \var{lineattrs} are strokestyles for
-  stroking the errorbars and lines, respecively. \var{lineattrs} are
-  merged with \var{changelinestyle} (see below). \var{epsilon} is used
-  to determine, when a symbol is outside of the graph (in graph
-  coordinates).
+Some of the styles below are hidden styles. Those do not create any
+output, but they perform internal data handling and thus help on
+modularization of the styles. Usually, a visible style will depend on
+data provided by one or more hidden styles but most of the time it is
+not necessary to specify the hidden styles manually. The hidden styles
+register themself to be the default for providing certain internal
+data.
 
-  \var{symbolline} is useable on graphs with arbitrary dimension and
-  geometry. It needs one data column for each graph dimension. The
-  data names must be equal to an axis name. Furthermore there can be
-  data names constructed out of the axis names for identifying data
-  for the error bars. Suppose \code{X} is an axis name. Then
-  \class{symbolline} allows for the following data names as well:
+\begin{classdesc}{pos}{epsilon=1e-10} % {{{
+  This class is a hidden style providing a position in the graph. It
+  needs a data column for each graph dimension. For that the column
+  names need to be equal to an axis name. Data points are considered
+  to be out of graph when their position in graph coordinates exceeds
+  the range [0:1] by more than \var{epsilon}.
+\end{classdesc} % }}}
 
+\begin{classdesc}{range}{usenames={}, epsilon=1e-10} % {{{
+  This class is a hidden style providing an errorbar range. It needs
+  data column names constructed out of a axis name \code{X} for each
+  dimension errorbar data should be provided as follows:
   \begin{tableii}{l|l}{}{data name}{description}
     \lineii{\code{Xmin}}{minimal value}
     \lineii{\code{Xmax}}{maximal value}
-    \lineii{\code{Xd}}{minimal and maximal delta}
-    \lineii{\code{Xdmin}}{minimal delta}
-    \lineii{\code{Xdmax}}{maximal delta}
+    \lineii{\code{dX}}{minimal and maximal delta}
+    \lineii{\code{dXmin}}{minimal delta}
+    \lineii{\code{dXmax}}{maximal delta}
   \end{tableii}
+  When delta data are provided the style will also read column data
+  for the axis name \code{X} itself. \var{usenames} allows to insert a
+  translation dictionary from axis names to the identifiers \code{X}.
 
-  Minimal and maximal values are calculated from delta by subtracting
-  and adding it to the value itself. Most of the data names are mutal
-  exclusive (whenever a minimal or maximal value would be set twice).
+  \var{epsilon} is a comparison precision when checking for invalid
+  errorbar ranges.
+\end{classdesc} % }}}
+
+\begin{classdesc}{symbol}{symbol=changecross, size=0.2*unit.v\_cm, % {{{
+                          symbolattrs=[]}
+  This class is a style for plotting symbols in a graph.
+  \var{symbol} refers to a (changeable) symbol function with the
+  prototype \code{symbol(c, x\_pt, y\_pt, size\_pt, attrs)} and draws
+  the symbol into the canvas \code{c} at the position \code{(x\_pt,
+  y\_pt)} with size \code{size\_pt} and attributes \code{attrs}. Some
+  predefined symbols are available in member variables listed below.
+  The symbol is drawn at size \var{size} using \var{symbolattrs}.
+  \var{symbolattrs} is merged with \code{defaultsymbolattrs} which is
+  a list containing the decorator \class{deco.stroked}. An instance of
+  \class{symbol} is the default style for all graph data classes
+  described in section~\ref{graph:data} except for \class{function}
+  and \class{paramfunction}.
 \end{classdesc}
 
-\class{symbolline} provides some symbol methods, namely:
+The class \class{symbol} provides some symbol functions as member
+variables, namely:
 
-\begin{methoddesc}{cross}{x_pt, y_pt, size_pt}
+\begin{memberdesc}{cross}
   A cross. Should be used for stroking only.
-\end{methoddesc}
+\end{memberdesc}
 
-\begin{methoddesc}{plus}{x_pt, y_pt, size_pt}
+\begin{memberdesc}{plus}
   A plus. Should be used for stroking only.
-\end{methoddesc}
+\end{memberdesc}
 
-\begin{methoddesc}{square}{x_pt, y_pt, size_pt}
+\begin{memberdesc}{square}
   A square. Might be stroked or filled or both.
-\end{methoddesc}
+\end{memberdesc}
 
-\begin{methoddesc}{triangle}{x_pt, y_pt, size_pt}
+\begin{memberdesc}{triangle}
   A triangle. Might be stroked or filled or both.
-\end{methoddesc}
+\end{memberdesc}
 
-\begin{methoddesc}{circle}{x_pt, y_pt, size_pt}
+\begin{memberdesc}{circle}
   A circle. Might be stroked or filled or both.
-\end{methoddesc}
+\end{memberdesc}
 
-\begin{methoddesc}{diamond}{x_pt, y_pt, size_pt}
+\begin{memberdesc}{diamond}
   A diamond. Might be stroked or filled or both.
-\end{methoddesc}
+\end{memberdesc}
 
-\class{symbolline} provides some changeable symbol methods as class
+\class{symbol} provides some changeable symbol functions as member
 variables, namely:
 
 \begin{memberdesc}{changecross}
@@ -607,9 +640,10 @@ variables, namely:
   attr.changelist([diamond, diamond, square, square, triangle, triangle, circle, circle])
 \end{memberdesc}
 
-\class{symbolline} provides two changeable decorators for alternated filling
-and stroking. Those are especially usefull in combination with the
-\method{change}-\method{twice}-symbol methods above. They are:
+The class \class{symbol} provides two changeable decorators for
+alternated filling and stroking. Those are especially useful in
+combination with the \method{change}-\method{twice}-symbol methods
+above. They are:
 
 \begin{memberdesc}{changestrokedfilled}
   attr.changelist([deco.stroked, deco.filled])
@@ -617,104 +651,112 @@ and stroking. Those are especially usefull in combination with the
 
 \begin{memberdesc}{changefilledstroked}
   attr.changelist([deco.filled, deco.stroked])
-\end{memberdesc}
+\end{memberdesc} % }}}
 
-Finally, there is a changeable linestyle used by default. It is
-defined as:
+\begin{classdesc}{line}{lineattrs=[]} % {{{
+  This class is a style to stroke lines in a graph.
+  \var{lineattrs} is merged with \code{defaultlineattrs} which is
+  a list containing the member variable \code{changelinestyle} as
+  described below. An instance of \class{line} is the default style
+  of the graph data classes \class{function} and \class{paramfunction}
+  described in section~\ref{graph:data}.
+\end{classdesc}
+
+The class \class{line} provides a changeable line style. Its
+definition is:
 
 \begin{memberdesc}{changelinestyle}
   attr.changelist([style.linestyle.solid, style.linestyle.dashed, style.linestyle.dotted, style.linestyle.dashdotted])
-\end{memberdesc}
+\end{memberdesc} % }}}
 
-\begin{classdesc}{symbol}{symbol=changecross, size="0.2 cm",
-                          errorscale=0.5, symbolattrs=[],
-                          errorbarattrs=[], epsilon=1e-10}
-  This class is a style to plot symbols and errorbars into a graph. It
-  is equivalent to \class{symbollines} except that it does not allow
-  for lines. An instance of \class{symbol} is the default style for
-  all data classes described in section~\ref{graph:data} except for
-  \class{function} and \class{paramfunction}.
-\end{classdesc}
+\begin{classdesc}{errorbar}{size=0.1*unit.v\_cm, errorbarattrs=[], % {{{
+                            epsilon=1e-10}
+  This class is a style to stroke errorbars in a graph. \var{size} is
+  the size of the caps of the errorbars and \var{errorbarattrs} are
+  the stroke attributes. Errorbars and error caps are considered to be
+  out of the graph when their position in graph coordinates exceeds
+  the range [0:1] by more that \var{epsilon}. Out of graph caps are
+  omitted and the errorbars are cut to the valid graph range.
+\end{classdesc} % }}}
 
-\begin{classdesc}{line}{errorbarattrs=[]}
-  This class is a style to stroke lines into graph. It is equivalent
-  to \class{symbollines} except that it does not allow for symbols and
-  errorbars. Thus it also does not accept data names for error bars.
-  Instances of \class{line} are the default style for the data classes
-  \class{function} and \class{paramfunction}.
-\end{classdesc}
+\begin{classdesc}{text}{textname="text", % {{{
+                        textdx=0*unit.v\_cm, textdy=0.3*unit.v\_cm,
+                        textattrs=[]}
+  This class is a style to stroke text in a graph. The
+  text to be written has to be provided in the data column named
+  \code{textname}. \var{textdx} and \var{textdy} are the position of the
+  text with respect to the position in the graph. \var{textattrs} are text
+  attributes for the output of the text.
+\end{classdesc} % }}}
 
-\begin{classdesc}{text}{textdx="0", textdy="0.3 cm", textattrs=[],
-                        symbol=changecross, size="0.2 cm",
-                        errorscale=0.5, symbolattrs=[],
-                        errorbarattrs=[], epsilon=1e-10}
-  This class enhances \class{symbol} by adding text to the symbol. The
-  text to be written has provided in the additional data column named
-  \code{text}. \var{textdx} and \var{textdy} are the position of the
-  text with respect of the symbol. \var{textattrs} are text
-  attributes for the output of the text. All other parameters have the
-  same meaning as in the \class{symbol} class.
-\end{classdesc}
-
-\begin{classdesc}{arrow}{linelength="0.25 cm", arrowsize="0.15 cm",
-                         lineattrs=[], arrowattrs=[], epsilon=1e-10}
+\begin{classdesc}{arrow}{linelength=0.25*unit.v\_cm, % {{{
+                         arrowsize=0.15*unit.v\_cm,
+                         lineattrs=[], arrowattrs=[],
+                         epsilon=1e-10}
   This class is a style to plot short lines with arrows into a
-  two-dimensional graph. The position of the arrow is defined by two
-  data columns named like an axes for each graph dimension. Two
-  additional data columns named \code{size} and \code{angle} define
-  the size and angle for each arrow. \code{size} is taken as a factor
-  to \var{arrowsize} and \var{linelength}, the size of the arrow and
-  the length of the line the arrow is plotted at. \code{angle} is the
-  angle the arrow points to with respect to a horizonal lines. The
-  \code{angle} is taken in degree and use in mathematical positive
-  sense. \var{lineattrs} and \var{arrowattrs} are styles for the arrow
-  line and arrow head respectively. \var{epsilon} is used to
-  determine, when the arrow is outside of the graph (in graph
-  coordinates).
-\end{classdesc}
+  two-dimensional graph to a given graph position. The arrow
+  parameters are defined by two additional data columns named
+  \code{size} and \code{angle} define the size and angle for each
+  arrow. \code{size} is taken as a factor to \var{arrowsize} and
+  \var{linelength}, the size of the arrow and the length of the line
+  the arrow is plotted at. \code{angle} is the angle the arrow points
+  to with respect to a horizontal line. The \code{angle} is taken in
+  degrees and used in mathematically positive sense. \var{lineattrs}
+  and \var{arrowattrs} are styles for the arrow line and arrow head,
+  respectively. \var{epsilon} is used as a cutoff for short arrows in
+  order to prevent numerical instabilities.
+\end{classdesc} % }}}
 
-\begin{classdesc}{rect}{palette=color.palette.Gray}
-  This class is a style to plot coloured rectangles into a
-  two-dimensional graph. The position of the rectangles are given by 4
-  data columns named \code{Xmin} and \code{Xmax} where \code{X} stands
-  for two axes names, one for each graph dimension. The additional
+\begin{classdesc}{rect}{palette=color.palette.Grey} % {{{
+  This class is a style to plot colored rectangles into a
+  two-dimensional graph. The size of the rectangles is taken from
+  the data provided by the \class{range} style. The additional
   data column named \code{color} specifies the color of the rectangle
-  defined by \var{palette}. Thus the valid color range is [0:1].
+  defined by \var{palette}. The valid color range is [0:1].
 
   \begin{note}
-    Although this style can be used for plotting coloured surfaces, it
-    will lead to a huge memory footprint of \PyX together with a
-    long running time and large outputs. Improved support for coloured
-    surfaces are planned for the future.
+    Although this style can be used for plotting colored surfaces, it
+    will lead to a huge memory footprint of \PyX{} together with a
+    long running time and large outputs. Improved support for colored
+    surfaces is planned for the future.
   \end{note}
-\end{classdesc}
+\end{classdesc} % }}}
 
-\begin{classdesc}{bar}{fromvalue=None, frompathattrs=[], barattrs=[],
-                       subnames=None, epsilon=1e-10}
-  This class is a style to plot bars into a two-dimensional graph. The
-  bars are plotted on top of a specialized axis, namely a bar axis.
-  The data column for this bar axis is named \code{Xname} where
-  \code{X} is an axis name. The bar value have a name an axis of the
-  other graph dimension. Suppose the name of this value axis is
-  \code{Y} than you can stack further bars on top of this bar by
-  providing additional data columns consecutively named
-  \code{Ystack1}, \code{Ystack2}, \code{Ystack3}, \emph{etc.}
-  When plotting several bars in a single graph, those bars are placed
-  side by side (at the same value of \code{Xname}). The name axis, a
-  bar axis, must then be a nested bar axis. The names used for the
-  subaxis can be set by \var{subnames}. When not set, integer numbers
-  starting from zero will be used.
+\begin{classdesc}{barpos}{fromvalue=None, frompathattrs=[], % {{{
+                          subnames=None, epsilon=1e-10}
+  This class is a hidden style providing position information in a bar
+  graph. Those graphs need to contain a specialized axis, namely a bar
+  axis. The data column for this bar axis is named \code{Xname} where
+  \code{X} is an axis name. In the other graph dimension the data
+  column name must be equal to an axis name. When plotting several
+  bars in a single graph, those bars are placed side by side (at the
+  same value of \code{Xname}). The name axis, a bar axis, must then be
+  a nested bar axis. The names used for the subaxis can be set by
+  \var{subnames}. When not set, integer numbers starting from zero
+  will be used.
 
   The bars start at \var{fromvalue} when provided. The \var{fromvalue}
-  is marked by a gridline stroked using \var{frompathattrs}. The bars
-  are filled using \var{barattrs}. \var{barattrs} is merged with
-  \samp{[color.palette.Rainbow, deco.stroked([color.gray.black])]} and
-  iterated independently when several bars are plotted side by side
-  and when several bars are plotted on top of each other. When mixing
-  both possibilities, you may use nested changeable styles.
-\end{classdesc}
+  is marked by a gridline stroked using \var{frompathattrs}. Thus this
+  hidden style might actually create some output. The value of a bar
+  axis is considered to be out of graph when its position in graph
+  coordinates exceeds the range [0:1] by more than \var{epsilon}.
+\end{classdesc} % }}}
 
-\section{Keys\label{graph:key}}
+\begin{classdesc}{stackedbarpos}{stackname, epsilon=1e-10} % {{{
+  This class is a hidden style providing position information in a bar
+  graph by stacking a new bar on top of another bar. The value of the
+  new bar is taken from the data column named \var{stackname}.
+\end{classdesc} % }}}
+
+\begin{classdesc}{bar}{barattrs=[]} % {{{
+  This class draws bars in a bar graph. The bars are filled using
+  \var{barattrs}. \var{barattrs} is merged with \code{defaultbarattrs}
+  which is a list containing \code{[color.palette.Rainbow,
+  deco.stroked([color.grey.black])]}.
+\end{classdesc} % }}} % }}}
+
+\section{Module graph/key: Keys} % {{{
+\label{graph:key}
 
 \declaremodule{}{graph.key}
 \modulesynopsis{Graph keys}
@@ -723,26 +765,41 @@ The following class provides a key, whose instances can be passed to
 the constructor keyword argument \code{key} of a graph. The class is
 implemented in \module{graph.key}.
 
-\begin{classdesc}{key}{dist="0.2 cm", pos="tr", hinside=1, vinside=1,
-                       hdist="0.6 cm", vdist="0.4 cm",
-                       symbolwidth="0.5 cm", symbolheight="0.25 cm",
-                       symbolspace="0.2 cm", textattrs=[]}
+\begin{classdesc}{key}{dist=0.2*unit.v\_cm,
+                       pos="tr", hpos=None, vpos=None,
+                       hinside=1, vinside=1,
+                       hdist=0.6*unit.v\_cm,
+                       vdist=0.4*unit.v\_cm,
+                       symbolwidth=0.5*unit.v\_cm,
+                       symbolheight=0.25*unit.v\_cm,
+                       symbolspace=0.2*unit.v\_cm,
+                       textattrs=[],
+                       border=0.3*unit.v\_cm, keyattrs=None}
   This class writes the title of the data in a plot together with a
   small illustration of the style. The style is responsible for its
   illustration.
 
   \var{dist} is a visual length and a distance between the key
   entries. \var{pos} is the position of the key with respect to the
-  graph. Allowed values are combinations of \samp{t} (top) and
-  \samp{b} (bottom) with \samp{l} (left) and \samp{r} (right).
-  \var{hdist} and \var{vdist} are the distances from the specified
-  corner of the graph. \var{hinside} and \var{vinside} are booleans to
-  define whether the key should be placed horizontally and vertically
-  inside of the graph or not.
+  graph. Allowed values are combinations of \code{"t"} (top),
+  \code{"m"} (middle) and \code{"b"} (bottom) with \code{"l"} (left),
+  \code{"c"} (center) and \code{"r"} (right). Alternatively, you may
+  use \var{hpos} and \var{vpos} to specify the relative position
+  using the range [0:1]. \var{hdist} and \var{vdist} are the distances
+  from the specified corner of the graph. \var{hinside} and
+  \var{vinside} are numbers to be set to 0 or 1 to define whether the
+  key should be placed horizontally and vertically inside of the graph
+  or not.
 
-  \var{symbolwidth} and \var{symbolheight} is passed to the style to
+  \var{symbolwidth} and \var{symbolheight} are passed to the style to
   control the size of the style illustration. \var{symbolspace} is the
   space between the illustration and the text. \var{textattrs} are
   attributes for the text creation. They are merged with
-  \samp{[text.vshift.mathaxis]}.
-\end{classdesc}
+  \code{[text.vshift.mathaxis]}.
+
+  When \var{keyattrs} is set to contain some draw attributes, the
+  graph key is enlarged by \var{border} and the key area is drawn
+  using \var{keyattrs}.
+\end{classdesc} % }}} % }}}
+
+% vim:fdm=marker

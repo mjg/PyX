@@ -222,7 +222,7 @@ class pathaxispos(_axispos):
 
     def __init__(self, p, convert, direction=1):
         self.path = p
-        self.normpath = path.normpath(p)
+        self.normpath = p.normpath()
         self.arclen_pt = self.normpath.arclen_pt()
         self.arclen = self.arclen_pt * unit.t_pt
         _axispos.__init__(self, convert)
@@ -321,21 +321,20 @@ class geometricseries(attr.changeattr):
 
 class ticklength(geometricseries): pass
 
-_base = 0.12
+_base = 0.12 * unit.v_cm
 
-#ticklength.short = ticklength("%f cm" % (_base/math.sqrt(64)), 1/goldenmean)
-ticklength.SHORT = ticklength(_base/math.sqrt(64)*unit.v_cm, 1/goldenmean)
-ticklength.SHORt = ticklength(_base/math.sqrt(32)*unit.v_cm, 1/goldenmean)
-ticklength.SHOrt = ticklength(_base/math.sqrt(16)*unit.v_cm, 1/goldenmean)
-ticklength.SHort = ticklength(_base/math.sqrt(8)*unit.v_cm, 1/goldenmean)
-ticklength.Short = ticklength(_base/math.sqrt(4)*unit.v_cm, 1/goldenmean)
-ticklength.short = ticklength(_base/math.sqrt(2)*unit.v_cm, 1/goldenmean)
-ticklength.normal = ticklength(_base*unit.v_cm, 1/goldenmean)
-ticklength.long = ticklength(_base*math.sqrt(2)*unit.v_cm, 1/goldenmean)
-ticklength.Long = ticklength(_base*math.sqrt(4)*unit.v_cm, 1/goldenmean)
-ticklength.LOng = ticklength(_base*math.sqrt(8)*unit.v_cm, 1/goldenmean)
-ticklength.LONg = ticklength(_base*math.sqrt(16)*unit.v_cm, 1/goldenmean)
-ticklength.LONG = ticklength(_base*math.sqrt(32)*unit.v_cm, 1/goldenmean)
+ticklength.SHORT = ticklength(_base/math.sqrt(64), 1/goldenmean)
+ticklength.SHORt = ticklength(_base/math.sqrt(32), 1/goldenmean)
+ticklength.SHOrt = ticklength(_base/math.sqrt(16), 1/goldenmean)
+ticklength.SHort = ticklength(_base/math.sqrt(8), 1/goldenmean)
+ticklength.Short = ticklength(_base/math.sqrt(4), 1/goldenmean)
+ticklength.short = ticklength(_base/math.sqrt(2), 1/goldenmean)
+ticklength.normal = ticklength(_base, 1/goldenmean)
+ticklength.long = ticklength(_base*math.sqrt(2), 1/goldenmean)
+ticklength.Long = ticklength(_base*math.sqrt(4), 1/goldenmean)
+ticklength.LOng = ticklength(_base*math.sqrt(8), 1/goldenmean)
+ticklength.LONg = ticklength(_base*math.sqrt(16), 1/goldenmean)
+ticklength.LONG = ticklength(_base*math.sqrt(32), 1/goldenmean)
 
 
 class regular(_title):
@@ -616,7 +615,7 @@ class split(_title):
             for subaxis1, subaxis2 in zip(axis.subaxes[:-1], axis.subaxes[1:]):
                 # use a tangent of the basepath (this is independent of the tickdirection)
                 v = 0.5 * (subaxis1.vmax + subaxis2.vmin)
-                p = path.normpath(axispos.vbasepath(v, None))
+                p = axispos.vbasepath(v, None).normpath()
                 breakline = p.tangent(0, length=self.breaklineslength)
                 widthline = p.tangent(0, length=self.breaklinesdist).transformed(trafomodule.rotate(self.breaklinesangle+90, *breakline.begin()))
                 # XXX Uiiii

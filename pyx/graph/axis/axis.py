@@ -24,7 +24,7 @@
 
 
 import math
-from pyx import attr
+from pyx import attr, helper
 from pyx.graph.axis import painter, parter, rater, texter, tick
 
 
@@ -174,8 +174,7 @@ class _axis:
           before giving up (usually it should not be needed to increase
           this value; increasing the number will slow down the automatic
           axis partitioning considerably)
-        - manualticks and the partitioner results are mixed
-          by mergeticklists
+        - manualticks and the partitioner results are combined
         - note that some methods of this class want to access a
           parter and a rater; those attributes implementing _Iparter
           and _Irater should be initialized by the constructors
@@ -229,34 +228,52 @@ class _axis:
 
     zero = 0.0
 
-    def adjustrange(self, points, index, deltaindex=None, deltaminindex=None, deltamaxindex=None):
+    def adjustrange(self, data, index, deltamindata=None, deltaminindex=None, deltamaxdata=None, deltamaxindex=None):
+        assert deltamindata is None or deltamaxdata is None
         min = max = None
-        if len([x for x in [deltaindex, deltaminindex, deltamaxindex] if x is not None]) > 1:
-            raise RuntimeError("only one of delta???index should set")
-        if deltaindex is not None:
-            deltaminindex = deltamaxindex = deltaindex
-        if deltaminindex is not None:
-            for point in points:
+        if deltamindata is not None:
+            for point, minpoint in zip(data, deltamindata):
                 try:
-                    value = point[index] - point[deltaminindex] + self.zero
+                    if index is not None:
+                        if deltaminindex is not None:
+                            value = point[index] - minpoint[deltaminindex] + self.zero
+                        else:
+                            value = point[index] - minpoint + self.zero
+                    else:
+                        if deltaminindex is not None:
+                            value = point - minpoint[deltaminindex] + self.zero
+                        else:
+                            value = point - minpoint + self.zero
                 except:
                     pass
                 else:
                     if min is None or value < min: min = value
                     if max is None or value > max: max = value
-        elif deltamaxindex is not None:
-            for point in points:
+        elif deltamaxdata is not None:
+            for point, maxpoint in zip(data, deltamaxdata):
                 try:
-                    value = point[index] + point[deltamaxindex] + self.zero
+                    if index is not None:
+                        if deltamaxindex is not None:
+                            value = point[index] + maxpoint[deltamaxindex] + self.zero
+                        else:
+                            value = point[index] + maxpoint + self.zero
+                    else:
+                        if deltamaxindex is not None:
+                            value = point + maxpoint[deltamaxindex] + self.zero
+                        else:
+                            value = point + maxpoint + self.zero
                 except:
                     pass
                 else:
                     if min is None or value < min: min = value
                     if max is None or value > max: max = value
         else:
-            for point in points:
+            for point in data:
                 try:
-                    value = point[index] + self.zero
+                    if index is not None:
+                        value = point[index] + self.zero
+                    else:
+                        value = point + self.zero
                 except:
                     pass
                 else:
@@ -286,6 +303,9 @@ class _axis:
     def finish(self, axispos):
         if self.axiscanvas is not None: return
 
+        if self.min is None or self.max is None:
+            raise RuntimeError("incomplete axis range")
+
         # temorarily enable the axis divisor
         self.usedivisor = 1
         self._setrange()
@@ -297,30 +317,33 @@ class _axis:
         if self.parter is not None:
             min, max = self.getrange()
             self.ticks = tick.mergeticklists(self.manualticks,
-                                             self.parter.defaultpart(min, max, not self.fixmin, not self.fixmax))
+                                             self.parter.defaultpart(min, max, not self.fixmin, not self.fixmax),
+                                             keepfirstifequal=1)
             worse = 0
             nextpart = self.parter.lesspart
             while nextpart is not None:
                 newticks = nextpart()
+                worse += 1
                 if newticks is not None:
-                    newticks = tick.mergeticklists(self.manualticks, newticks)
+                    newticks = tick.mergeticklists(self.manualticks, newticks, keepfirstifequal=1)
                     if first:
-                        bestrate = self.rater.rateticks(self, self.ticks, self.density)
-                        bestrate += self.rater.raterange(self.convert(self.ticks[-1])-
-                                                         self.convert(self.ticks[0]), 1)
-                        variants = [[bestrate, self.ticks]]
+                        if len(self.ticks):
+                            bestrate = self.rater.rateticks(self, self.ticks, self.density)
+                            bestrate += self.rater.raterange(self.convert(self.ticks[-1])-
+                                                             self.convert(self.ticks[0]), 1)
+                            variants = [[bestrate, self.ticks]]
+                        else:
+                            bestrate = None
+                            variants = []
                         first = 0
-                    newrate = self.rater.rateticks(self, newticks, self.density)
-                    newrate += self.rater.raterange(self.convert(newticks[-1])-
-                                                    self.convert(newticks[0]), 1)
-                    variants.append([newrate, newticks])
-                    if newrate < bestrate:
-                        bestrate = newrate
-                        worse = 0
-                    else:
-                        worse += 1
-                else:
-                    worse += 1
+                    if len(newticks):
+                        newrate = self.rater.rateticks(self, newticks, self.density)
+                        newrate += self.rater.raterange(self.convert(newticks[-1])-
+                                                        self.convert(newticks[0]), 1)
+                        variants.append([newrate, newticks])
+                        if bestrate is None or newrate < bestrate:
+                            bestrate = newrate
+                            worse = 0
                 if worse == self.maxworse and nextpart == self.parter.lesspart:
                     worse = 0
                     nextpart = self.parter.morepart
@@ -333,6 +356,7 @@ class _axis:
         if not first:
             variants.sort()
             if self.painter is not None:
+                nodistances = 1
                 i = 0
                 bestrate = None
                 while i < len(variants) and (bestrate is None or variants[i][0] < bestrate):
@@ -342,20 +366,23 @@ class _axis:
                         self.setrange(self.ticks[0], self.ticks[-1])
                     self.texter.labels(self.ticks)
                     ac = self.painter.paint(axispos, self)
+                    if len(ac.labels) > 1:
+                        nodistances = 0
                     ratelayout = self.rater.ratelayout(ac, self.density)
                     if ratelayout is not None:
                         variants[i][0] += ratelayout
-                        variants[i].append(ac)
                     else:
                         variants[i][0] = None
+                    variants[i].append(ac)
                     if variants[i][0] is not None and (bestrate is None or variants[i][0] < bestrate):
                         bestrate = variants[i][0]
                     self._forcerange(saverange)
                     i += 1
-                if bestrate is None:
-                    raise RuntimeError("no valid axis partitioning found")
-                variants = [variant for variant in variants[:i] if variant[0] is not None]
-                variants.sort()
+                if not nodistances:
+                    if bestrate is None:
+                        raise RuntimeError("no valid axis partitioning found")
+                    variants = [variant for variant in variants[:i] if variant[0] is not None]
+                    variants.sort()
                 self.ticks = variants[0][1]
                 if len(self.ticks):
                     self.setrange(self.ticks[0], self.ticks[-1])
@@ -391,8 +418,6 @@ class linear(_axis, _linmap):
     def __init__(self, parter=parter.autolinear(), rater=rater.linear(), **args):
         """initializes the instance
         - the parter attribute implements _Iparter
-        - manualticks and the partitioner results are mixed
-          by mergeticklists
         - the rater implements _Irater and is used to rate different
           tick lists created by the partitioner (after merging with
           manully set ticks)
@@ -414,8 +439,6 @@ class logarithmic(_axis, _logmap):
     def __init__(self, parter=parter.autologarithmic(), rater=rater.logarithmic(), **args):
         """initializes the instance
         - the parter attribute implements _Iparter
-        - manualticks and the partitioner results are mixed
-          by mergeticklists
         - the rater implements _Irater and is used to rate different
           tick lists created by the partitioner (after merging with
           manully set ticks)
@@ -633,11 +656,7 @@ class bar:
       of a list; instead of the term "bar" or "subaxis" the term
       "item" will be used here
     - the bar axis stores a list of names be identify the items;
-      the names might be of any time (strings, integers, etc.);
-      the names can be printed as the titles for the items, but
-      alternatively the names might be transformed by the texts
-      dictionary, which maps a name to a text to be used to label
-      the items in the painter
+      the names might be of any time (strings, integers, etc.)
     - usually, there is only one subaxis, which is used as
       the subaxis for all items
     - alternatively it is also possible to use another bar axis
@@ -651,7 +670,6 @@ class bar:
 
     def __init__(self, subaxis=None, multisubaxis=None,
                        dist=0.5, firstdist=None, lastdist=None,
-                       names=None, texts={},
                        title=None, painter=painter.bar()):
         """initialize the instance
         - subaxis contains a axis to be used as the subaxis
@@ -731,11 +749,12 @@ class bar:
                     self.relsizes = None
         return self.relsizes is not None
 
-    def adjustrange(self, points, index, subnames=None):
-        if subnames is None:
-            subnames = []
+    def adjustrange(self, points, index, subnames=[]):
         for point in points:
-            self.setname(point[index], *subnames)
+            if index is not None:
+                self.setname(point[index], *subnames)
+            else:
+                self.setname(point, *subnames)
 
     def updaterelsizes(self):
         # guess what it does: it recalculates relsize attribute

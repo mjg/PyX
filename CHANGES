@@ -14,12 +14,14 @@ TODO:
   - graph.graph module
     - common bboxes for different graphs
     - 3d graphs, circular graphs
+    - axis painter labelattrs=None + automatic axis partitioning leads to no valid partitioning
+    - default titles of the data should try to be valid TeX expressions (handle "_" etc.)
+    - when all titles are None, a graph key currently raises an exception
+    - translatecanvas should be the default in graph.style.symbol
   - graph.style and graph.data modules
     - exceptions in drawsymbol & friends...
-    - caution: another reorganization round is in progress
-      (its goal is to make graph styles combinable which will also
-      split up the style code in smaller parts -- those will then be
-      easier to substitute by inheritance)
+    - fix docu (or code) of gridattrs functionality of axis painters
+      (how can one, e.g. draw a grid at the ticks and not at the subticks)
   - graph.data module:
     - use csv module (new in 2.3)
     - Check for "inf" and "nan" in datafiles.
@@ -41,26 +43,30 @@ TODO:
     - might be moved into the graph
     - perform calc by means of Python itself (see eval code in graph.data, but
       we should use compiled code instead of eval)
-  - deco module:
-    - think hard about different paths in decoratedpath class
-    - adjust parameters of cycloid and smoothed
-      AW: I suggest to use cycloid with default curvesperloop=5.
   - dvifile module:
     - support single-character mode
   - path module:
-    - arclentoparam should raise an exception when the arclen is out of range
-    - there are two epsilons related to normpath, one in the normpath and
-      one in the subnormpath; while the later seems a clear feature, the first
-      might be a misdesign; a solution is still pending ...
+    - arclentoparam should raise an exception when the arclen is out of range (Really?)
+    - should split also allow the user to pass arclens (instead of params)
+    - there are many occurences of 1e-5 left. Should they be replaced by the global _epsilon,
+      which would change the constructors to epsilon=None... if epsilon is None: epsilon=_epsilon
   - color module:
     - what should we do for palette when only one entry
   - connector module:
     - is the early conversion with unit.topt unit-modification-save?
+  - deformer module:
+    - better names for the helper functions ?
+  - open discussion:
+    - clearly distingish between readers and writers. dvifile, epsfile, etc. might
+      be renamed to dvireader, epsreader ...
+
 
   Documentation:
     - path module:
       - describe + vs <<
       - more details in path constructor: allowed pathels, first pathel...
+      - normsubpath: new method close, new default arguments
+      - normpath: append method
     - deco module:
       - cycloid decorator
       - smoothed decorator
@@ -70,12 +76,17 @@ TODO:
     - section titles: "Axes" -> "Axes - module axis" or similar
     - box module:
       - linealign and circlealign
+    - unit module
 
   FAQ:
     - describe creation and modification (inplace and ``modify by new'') of
       graph data
 
+  MISSING CHANGES OF BASEL SPRINT
+
 0.7 (xxxx/xx/xx):
+  - bitmap module:
+    - new module for inclusion of bitmap images
   - path module:
     - names of local and member variables now follow the naming convention of
       having a _pt suffix when containing lengths in points
@@ -92,19 +103,86 @@ TODO:
     - unit.cm, unit.t_cm, etc. are no longer sub classes but instances
       of length
     - never convert implicitly into visual/width, etc. lengths (this is more
-      about usage of the unit module in various other modules)
-    - support for string initialization commented out, so its currently still
-      easy to turn it on again (TODO: documentation)
+      about usage of the unit module in various other modules) (TODO: update
+      documentation)
+    - support for string initialization removed
+    - support for initialisation with other length removed
+    - lengths can now be divided by other lengths (as suggested by Michael Gruber
+      and Magnus Lie HHetland)
+  - text module:
+    - postpone reading of fontmap files until TeX/LaTeX is started
+    - sign of font number in dvifile (reported by Michael Gruber)
+    - phantom attribute
   - canvas module:
     - added new classes page and document for multipage PostScript output
-  - style module: 
+    - apply deformers (instead of trafos) in draw method
+  - style module:
     - decrease interval for dotted and dash-dotted lines for better visual
       appearance
   - setup.py and distribution:
     - create siteconfig on install to store positions of the shared data
       and the global pyxrc
   - graph modules:
+    - graph style + data reorganization
+      - modularization of the graph styles by separating data handling and drawing tasks
+      - several graph styles can now be combined together
+      - graph data can internally now combine different data sources
+        (by that, some nasty side effects could have been removed)
     - enum -> num renaming
+    - allow for horizontally and vertically centered graph key alignment and a key background
+    - fix bug that graph was not finished automatically when a bbox was specified
+      manually (reported by David Barton)
+  - path module:
+    - pathel -> pathitem, etc. renaming
+    - methods accepting a parameter value / arc length now also allow the user to 
+      pass a tuple (subpath, param) / (subpath, arclen)
+    - normpath constructor no longer accepts a path or normpath as argument but only a list
+      of normsubpaths. Use the new normpath method of the path instead to construct a normpath
+      from a path.
+    - normsubpath can now deal with short (i.e. shorter than epsilon) segments correctly
+    - the intersect and split methods of normpath and normsubpath have been completely rewritten and
+      now take the accuracy epsilon correctly into account. Note that for a closed subpath the
+      split function now returns the segment containing the closing point as first element
+      in the result list (before, it was returned as last element).
+    - normsubpathitems and normsubpath now implement much more methods also provided by
+      path and normpath instances
+    - normpath.append no longer accepts pathitems but only normsubpaths
+  - deformer module: new
+    - moved cycloid and smoothed from deco into deformer
+  - bbox module:
+    - handle "BoundingBox: (atend)" (cf. bug #945621 reported by Jim Boyle)
+    - kpsearch option to search for file using the kpathsea library (contributed by Michael Gruber)
+  - base module:
+    - PSCmd and PSOp are now joined in a new class canvasitem
+  - deco module: 
+    - decorated path no longer allows modification of its path
+    - new method excluderange which allows to remove certain parameter ranges from the stroked path
+    - additional canvas provided by decorated path is now called ornaments
+  - trafo module:
+    - trafos are now deformers
+  - examples:
+    - a bunch of bargraph examples have been added
+
+
+0.6.x (????/??/??):
+   - graph/axis module:
+     - fix errorbar range adjustment
+     - fix empty tick lists bug (reported by Marko Vendelin, cf. bug #977323)
+   - graph/style module:
+     - symbolline drawing order in graph key (cf. bug #990687)
+   - graph/data module:
+     - access to builtin list (reported by Marcus Mendenhall, cf. bug #1042458)
+
+
+0.6.3 (2004/04/27):
+   - graph module:
+     - fix drawing with background
+     - fix insertion of a zero length path when the whole line is outside
+       the valid axis range (reported by Marko Vendelin)
+   - distribution:
+     - include source for faq and manual
+     - distribute the pdf instead of postscript (manual, faq, examples)
+
 
 0.6.2 (2004/04/07):
   - graph module:
@@ -114,9 +192,11 @@ TODO:
     - changeable-gridattrs-become-None-bug fixed
     - graph style cutting outside lines (double-)fixed
 
+
 0.6.1 (2004/03/31):
   - fixes missing install of the graph and axis directories introduced in 0.6
   - some minor updates to the faq
+
 
 0.6 (2004/03/30):
   - graph module:

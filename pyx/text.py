@@ -411,6 +411,16 @@ mathmode = _mathmode()
 nomathmode = attr.clearclass(_mathmode)
 
 
+class _phantom(attr.attr, textattr, _localattr):
+    "phantom text"
+
+    def apply(self, expr):
+        return r"\phantom{%s}" % expr
+
+phantom = _phantom()
+nophantom = attr.clearclass(_phantom)
+
+
 defaultsizelist = ["normalsize", "large", "Large", "LARGE", "huge", "Huge", None, "tiny", "scriptsize", "footnotesize", "small"]
 
 class size(attr.sortbeforeattr, textattr, _localattr):
@@ -574,10 +584,9 @@ class _readpipe(threading.Thread):
             pass
         while len(read):
             # universal EOL handling (convert everything into unix like EOLs)
-            read.replace("\r", "")
-            if not len(read) or read[-1] != "\n":
-                read += "\n"
-            self.gotqueue.put(read) # report, whats readed
+            # XXX is this necessary on pipes?
+            read = read.replace("\r", "").replace("\n", "") + "\n"
+            self.gotqueue.put(read) # report, whats read
             if self.expect is not None and read.find(self.expect) != -1:
                 self.gotevent.set() # raise the got event, when the output was expected (XXX: within a single line)
             read = self.pipe.readline() # read again
@@ -659,8 +668,6 @@ def _cleantmp(texrunner):
     - function to be registered by atexit
     - files contained in usefiles are kept"""
     if texrunner.texruns: # cleanup while TeX is still running?
-        texrunner.texruns = 0
-        texrunner.texdone = 1
         texrunner.expectqueue.put_nowait(None)              # do not expect any output anymore
         if texrunner.mode == "latex":                       # try to immediately quit from TeX or LaTeX
             texrunner.texinput.write("\n\\catcode`\\@11\\relax\\@@end\n")
@@ -669,6 +676,8 @@ def _cleantmp(texrunner):
         texrunner.texinput.close()                          # close the input queue and
         if not texrunner.waitforevent(texrunner.quitevent): # wait for finish of the output
             return                                          # didn't got a quit from TeX -> we can't do much more
+        texrunner.texruns = 0
+        texrunner.texdone = 1
     for usefile in texrunner.usefiles:
         extpos = usefile.rfind(".")
         try:
@@ -736,7 +745,7 @@ class texrunner:
         self.docclass = docclass
         self.docopt = docopt
         self.usefiles = usefiles
-        self.fontmap = dvifile.readfontmap(fontmaps.split())
+        self.fontmaps = fontmaps
         self.waitfortex = waitfortex
         self.showwaitfortex = showwaitfortex
         self.texipc = texipc
@@ -805,7 +814,7 @@ class texrunner:
         - the method must not be called, when self.texdone is already set
         - expr should be a string or None
         - when expr is None, TeX/LaTeX is stopped, self.texruns is unset and
-          while self.texdone becomes set
+          self.texdone becomes set
         - when self.preamblemode is set, the expr is passed directly to TeX/LaTeX
         - when self.preamblemode is unset, the expr is passed to \ProcessPyXBox
         - texmessages is a list of texmessage instances"""
@@ -839,6 +848,7 @@ class texrunner:
             self.quitevent = threading.Event() # keeps for end of terminal event
             self.readoutput = _readpipe(self.texoutput, self.expectqueue, self.gotevent, self.gotqueue, self.quitevent)
             self.texruns = 1
+            self.fontmap = dvifile.readfontmap(self.fontmaps.split())
             oldpreamblemode = self.preamblemode
             self.preamblemode = 1
             self.execute("\\scrollmode\n\\raiseerror%\n" # switch to and check scrollmode
@@ -1056,7 +1066,7 @@ class texrunner:
         if usefiles is not None:
             self.usefiles = usefiles
         if fontmaps is not None:
-            self.fontmap = dvifile.readfontmap(fontmaps.split())
+            self.fontmaps = fontmaps
         if waitfortex is not None:
             self.waitfortex = waitfortex
         if showwaitfortex is not None:
@@ -1272,3 +1282,26 @@ preamble = defaulttexrunner.preamble
 text = defaulttexrunner.text
 text_pt = defaulttexrunner.text_pt
 
+def escapestring(s):
+    """escape special TeX/LaTeX characters
+
+    Returns a string, where some special characters of standard
+    TeX/LaTeX are replaced by appropriate escaped versions. Note
+    that we cannot handle the three ASCII characters '{', '}',
+    and '\' that way, since they do not occure in the TeX default
+    encoding and thus are more likely to need some special handling.
+    All other ASCII characters should usually (but not always)
+    work."""
+
+    # ASCII strings only
+    s = str(s)
+    i = 0
+    while i < len(s):
+        if s[i] in "$&#_%":
+            s = s[:i] + "\\" + s[i:]
+            i += 1
+        elif s[i] in "^~":
+            s = s[:i] + r"\string" + s[i:]
+            i += 7
+        i += 1
+    return s

@@ -22,18 +22,11 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 import types
-import re
 import helper
 
 scale = { 't':1, 'u':1, 'v':1, 'w':1, 'x':1 }
 
 _default_unit = "cm"
-
-unit_pattern = re.compile(r"""^\s*([+-]?\d*((\d\.?)|(\.?\d))\d*(E[+-]?\d+)?)
-                              (\s+([t-x]))?
-                              (\s+(([a-z][a-z]+)|[^t-x]))?\s*$""",
-                          re.IGNORECASE | re.VERBOSE)
-
 
 _m = { 
       'm' :   1,
@@ -55,19 +48,15 @@ def set(uscale=None, vscale=None, wscale=None, xscale=None, defaultunit=None):
     if defaultunit is not None:
         global _default_unit
         _default_unit = defaultunit
- 
+
 
 def _convert_to(l, dest_unit="m"):
     if type(l) in (types.IntType, types.LongType, types.FloatType):
-        return l*_m[_default_unit]*scale['u']/_m[dest_unit]
+        return l * _m[_default_unit] * scale['u'] / _m[dest_unit]
     elif not isinstance(l, length): 
-        l=length(l)       # convert to length instance if necessary
+        l = length(l)       # convert to length instance if necessary
 
-    return ( l.length['t']            +
-             l.length['u']*scale['u'] +
-             l.length['v']*scale['v'] +
-             l.length['w']*scale['w'] +
-             l.length['x']*scale['x'] ) / _m[dest_unit]
+    return (l.t + l.u*scale['u'] + l.v*scale['v'] + l.w*scale['w'] + l.x*scale['x']) / _m[dest_unit]
 
 def tom(l):
     return _convert_to(l, "m")
@@ -89,98 +78,106 @@ def topt(l):
 ################################################################################
 
 class length:
-    """ general lengths
+    """ PyX lengths
 
-    Lengths can either be a initialized with a number or a string:
-
-     - a length specified as a number corresponds to the default values of
-       unit_type and unit_name
-     - a string has to consist of a maximum of three parts:
-       -quantifier: integer/float value
-       -unit_type:  "t", "u", "v", "w", or "x".
-                    Optional, defaults to "u"
-       -unit_name:  "m", "cm", "mm", "inch", "pt".
-                    Optional, defaults to _default_unit
-
-    Internally all length are stored in units of m as a quadruple of the four
-    unit_types.
-
+    PyX lengths are composed of five components (t=true, u=user, v=visual,
+    w=width, and x=TeX) which can be scaled separately (except for the true
+    component, which is always unscaled). Lengths can be constructed in units
+    of "pt", "mm", "cm", "m" and "inch". When no unit is given, a module
+    default is used, which can be changed with the help of the set method of
+    the present module.
     """
 
-    def __init__(self, l=1, default_type="u", dunit=None):
-        self.length = { 't': 0 , 'u': 0, 'v': 0, 'w': 0, 'x': 0 }
-
-        if isinstance(l, length):
-            self.length = l.length
-        elif helper.isnumber(l):
-            self.length[default_type] = l*_m[dunit or _default_unit]
-        # elif helper.isstring(l):
-        #     unit_match = re.match(unit_pattern, l)
-        #     if unit_match is None:
-        #         raise ValueError("expecting number or string of the form 'number [u|v|w|x] unit'")
-        #     else:
-        #         self.prefactor = float(unit_match.group(1))
-        #         self.unit_type = unit_match.group(7) or default_type
-        #         self.unit_name = unit_match.group(9) or dunit or _default_unit
-
-        #         self.length[self.unit_type] = self.prefactor*_m[self.unit_name]
-        else:
-            raise NotImplementedError("cannot convert given argument to length type")
+    def __init__(self, f=0, type="u", unit=None):
+        """ create a length instance of the given type with a length f
+        in the given unit. If unit is not set, the currently set default unit is used.
+        """
+        self.t = self.u = self.v = self.w = self.x = 0
+        l = f * _m[unit or _default_unit]
+        if type == "t":
+            self.t = l
+        elif type == "u":
+            self.u = l
+        elif type == "v":
+            self.v = l
+        elif type == "w":
+            self.w = l
+        elif type == "x":
+            self.x = l
 
     def __cmp__(self, other):
         return cmp(tom(self), tom(other))
 
     def __mul__(self, factor):
-        newlength = self.__class__()
-        for unit_type in newlength.length.keys():
-           newlength.length[unit_type] = self.length[unit_type]*factor
-        return newlength
+        result = length()
+        result.t = factor * self.t
+        result.u = factor * self.u
+        result.v = factor * self.v
+        result.w = factor * self.w
+        result.x = factor * self.x
+        return result
 
     __rmul__=__mul__
 
     def __div__(self, factor):
-      if isinstance(factor, length):
-        return tom(self)/tom(factor)
-      else:
-        newlength = self.__class__()
-        for unit_type in newlength.length.keys():
-           newlength.length[unit_type] = self.length[unit_type]/factor
-        return newlength
+        if isinstance(factor, length):
+            return tom(self)/tom(factor)
+        result = length()
+        result.t = self.t / factor
+        result.u = self.u / factor
+        result.v = self.v / factor
+        result.w = self.w / factor
+        result.x = self.x / factor
+        return result
 
-    def __add__(self, l):
+    def __add__(self, other):
         # convert to length if necessary
-        ll = length(l)
-        newlength = self.__class__()
-        for unit_type in newlength.length.keys():
-           newlength.length[unit_type] = self.length[unit_type] + ll.length[unit_type]
-        return newlength
+        if not isinstance(other, length):
+            other = length(other)
+        result = length()
+        result.t = self.t + other.t
+        result.u = self.u + other.u
+        result.v = self.v + other.v
+        result.w = self.w + other.w
+        result.x = self.x + other.x
+        return result
 
     __radd__=__add__
 
-    def __sub__(self, l):
+    def __sub__(self, other):
         # convert to length if necessary
-        ll = length(l)
-        newlength = self.__class__()
-        for unit_type in newlength.length.keys():
-           newlength.length[unit_type] = self.length[unit_type] - ll.length[unit_type]
-        return newlength
+        if not isinstance(other, length):
+            other = length(other)
+        result.t = self.t - other.t
+        result.u = self.u - other.u
+        result.v = self.v - other.v
+        result.w = self.w - other.w
+        result.x = self.x - other.x
+        return result
 
-    def __rsub__(self, l):
+    def __rsub__(self, other):
         # convert to length if necessary
-        ll = length(l)
-        newlength = self.__class__()
-        for unit_type in newlength.length.keys():
-           newlength.length[unit_type] = ll.length[unit_type] - self.length[unit_type]
-        return newlength
+        if not isinstance(other, length):
+            other = length(other)
+        result = length()
+        result.t = other.t - self.t
+        result.u = other.u - self.u
+        result.v = other.v - self.v
+        result.w = other.w - self.w
+        result.x = other.x - self.x
+        return result
 
     def __neg__(self):
-        newlength = self.__class__()
-        for unit_type in newlength.length.keys():
-           newlength.length[unit_type] = -self.length[unit_type]
-        return newlength
+        result = length()
+        result.t = -self.t
+        result.u = -self.u
+        result.v = -self.v
+        result.w = -self.w
+        result.x = -self.x
+        return result
 
     def __str__(self):
-        return "(%(t)f t + %(u)f u + %(v)f v + %(w)f w + %(x)f x) m" % self.length
+        return "(%(t)f t + %(u)f u + %(v)f v + %(w)f w + %(x)f x) m" % self.__dict__
 
 
 ################################################################################
@@ -188,37 +185,36 @@ class length:
 ################################################################################
 
 # user lengths and unqualified length which are also user length
-u_pt = pt = length(1, "u", "pt")
-u_m = m = length(1, "u", "m")
-u_mm = mm = length(1, "u", "mm")
-u_cm = cm = length(1, "u", "cm")
-u_inch = inch = length(1, "u", "inch")
+u_pt   = pt   = length(1, type="u", unit="pt")
+u_m    = m    = length(1, type="u", unit="m")
+u_mm   = mm   = length(1, type="u", unit="mm")
+u_cm   = cm   = length(1, type="u", unit="cm")
+u_inch = inch = length(1, type="u", unit="inch")
 
 # true lengths
-t_pt = length(1, "t", "pt")
-t_m = length(1, "t", "m")
-t_mm = length(1, "t", "mm")
-t_cm = length(1, "t", "cm")
-t_inch = length(1, "t", "inch")
+t_pt   = length(1, type="t", unit="pt")
+t_m    = length(1, type="t", unit="m")
+t_mm   = length(1, type="t", unit="mm")
+t_cm   = length(1, type="t", unit="cm")
+t_inch = length(1, type="t", unit="inch")
 
 # visual lengths
-v_pt = length(1, "v", "pt")
-v_m = length(1, "v", "m")
-v_mm = length(1, "v", "mm")
-v_cm = length(1, "v", "cm")
-v_inch = length(1, "v", "inch")
-
+v_pt   = length(1, type="v", unit="pt")
+v_m    = length(1, type="v", unit="m")
+v_mm   = length(1, type="v", unit="mm")
+v_cm   = length(1, type="v", unit="cm")
+v_inch = length(1, type="v", unit="inch")
 
 # width lengths
-w_pt = length(1, "w", "pt")
-w_m = length(1, "w", "m")
-w_mm = length(1, "w", "mm")
-w_cm = length(1, "w", "cm")
-w_inch = length(1, "w", "inch")
+w_pt   = length(1, type="w", unit="pt")
+w_m    = length(1, type="w", unit="m")
+w_mm   = length(1, type="w", unit="mm")
+w_cm   = length(1, type="w", unit="cm")
+w_inch = length(1, type="w", unit="inch")
 
 # TeX lengths
-x_pt = length(1, "x", "pt")
-x_m = length(1, "x", "m")
-x_mm = length(1, "x", "mm")
-x_cm = length(1, "x", "cm")
-x_inch = length(1, "x", "inch")
+x_pt   = length(1, type="x", unit="pt")
+x_m    = length(1, type="x", unit="m")
+x_mm   = length(1, type="x", unit="mm")
+x_cm   = length(1, type="x", unit="cm")
+x_inch = length(1, type="x", unit="inch")
