@@ -23,6 +23,7 @@
 
 import re
 import base, bbox, canvas, prolog, unit, trafo
+import pykpathsea
 
 # PostScript-procedure definitions (cf. 5002.EPSF_Spec_v3.0.pdf)
 # with important correction in EndEPSF:
@@ -100,6 +101,7 @@ class epsfile(base.PSCmd):
                  align="bl",
                  clip=1,
                  translatebbox = 1,
+                 kpsearch = 0,
                  bbox = None):
         """inserts epsfile
 
@@ -107,13 +109,18 @@ class epsfile(base.PSCmd):
         set, the result gets clipped to the bbox of the EPS file. If
         translatebbox is not set, the EPS graphics is not translated to
         the corresponding origin. If bbox is not None, it overrides 
-        the bounding box in the epsfile itself.
+        the bounding box in the epsfile itself. If kpsearch is set then
+        filename is searched using the kpathsea library.
 
         """
 
         self._x = unit.topt(x)
         self._y = unit.topt(y)
-        self.filename = filename
+        if kpsearch:
+            self.filename = pykpathsea.find_file(filename, pykpathsea.kpse_pict_format)
+        else:
+            self.filename = filename
+
         self.mybbox = bbox or _readbbox(self.filename)
 
         # determine scaling in x and y direction
