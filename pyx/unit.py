@@ -139,6 +139,9 @@ class length:
     __rmul__=__mul__
 
     def __div__(self, factor):
+      if isinstance(factor, length):
+        return tom(self)/tom(factor)
+      else:
         newlength = self.__class__()
         for unit_type in newlength.length.keys():
            newlength.length[unit_type] = self.length[unit_type]/factor
