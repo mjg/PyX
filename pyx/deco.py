@@ -566,6 +566,50 @@ class text(deco, attr.attr):
         t.linealign(self.textdist, math.cos(self.angle*math.pi/180), math.sin(self.angle*math.pi/180))
         dp.ornaments.insert(t)
 
+class ttext(deco, attr.attr):
+    """a simple text decorator with directed output"""
+
+    def __init__(self, text, textattrs=[], angle=None, textdist=0.2,
+                       relarclenpos=0.5, arclenfrombegin=None, arclenfromend=None,
+                       texrunner=None):
+        if arclenfrombegin is not None and arclenfromend is not None:
+            raise ValueError("either set arclenfrombegin or arclenfromend")
+        self.text = text
+        self.textattrs = textattrs
+        self.angle = angle
+        self.textdist = textdist
+        self.relarclenpos = relarclenpos
+        self.arclenfrombegin = arclenfrombegin
+        self.arclenfromend = arclenfromend
+        self.texrunner = texrunner
+
+    def decorate(self, dp, texrunner):
+        if self.texrunner:
+            texrunner = self.texrunner
+        import text as textmodule
+        textattrs = attr.mergeattrs([textmodule.halign.center, textmodule.vshift.mathaxis] + self.textattrs)
+
+        dp.ensurenormpath()
+        if self.arclenfrombegin is not None:
+            textpos = dp.path.begin() + self.arclenfrombegin
+        elif self.arclenfromend is not None:
+            textpos = dp.path.end() - self.arclenfromend
+        else:
+            # relarcpos is used, when neither arcfrombegin nor arcfromend is given
+            textpos = self.relarclenpos * dp.path.arclen()
+        x, y = dp.path.at(textpos)
+        if self.angle is None:
+          dx, dy = dp.path.trafo(textpos).apply(0,-1) # compute normal - this is the endpoint of the vector based at x, y!
+          dx, dy = unit.topt(dx-x), unit.topt(dy-y) # linealign doesn't like units in directions
+        else:
+          dx, dy = math.cos(self.angle*math.pi/180), math.sin(self.angle*math.pi/180)
+
+        t = texrunner.text(x, y, self.text, textattrs)
+        if self.textdist <0: # lienalign doesn't handle negative distances well
+          t.linealign(-self.textdist, -dx, -dy)
+        else:
+          t.linealign(self.textdist, dx, dy)
+        dp.ornaments.insert(t)
 
 class shownormpath(deco, attr.attr):
 
