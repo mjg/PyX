@@ -566,6 +566,64 @@ class text(deco, attr.attr):
         t.linealign(self.textdist, math.cos(self.angle*math.pi/180), math.sin(self.angle*math.pi/180))
         dp.ornaments.insert(t)
 
+import dvifile,type1font
+
+oldputchar = dvifile.dvifile.putchar
+
+def newputchar(self, char, advancepos=1):
+  oldputchar(self, char, advancepos)
+  self.flushtext()
+
+dvifile.dvifile.putchar = newputchar
+
+class curvedtext(deco, attr.attr):
+    """a text decorator for curved text"""
+
+    def __init__(self, text, textattrs=[], 
+                       relarclenpos=0, arclenfrombegin=None, arclenfromend=None,
+                       texrunner=None):
+        if arclenfrombegin is not None and arclenfromend is not None:
+            raise ValueError("either set arclenfrombegin or arclenfromend")
+        self.text = text
+        self.textattrs = textattrs
+        self.relarclenpos = relarclenpos
+        self.arclenfrombegin = arclenfrombegin
+        self.arclenfromend = arclenfromend
+        self.texrunner = texrunner
+
+    def decorate(self, dp, texrunner):
+        if self.texrunner:
+            texrunner = self.texrunner
+        import text as textmodule
+
+        dp.ensurenormpath()
+        if self.arclenfrombegin is not None:
+            textpos = dp.path.begin() + self.arclenfrombegin
+        elif self.arclenfromend is not None:
+            textpos = dp.path.end() - self.arclenfromend
+        else:
+            # relarcpos is used if neither arcfrombegin nor arcfromend is given
+            textpos = self.relarclenpos * dp.path.arclen()
+
+        c = canvas.canvas()
+        t = texrunner.text(0, 0, self.text, self.textattrs)
+
+        for op in t.items: # copy over attr ops (colour...)
+            if not isinstance(op, canvas._canvas): # should not occur before ensuredvicanvas
+                c.insert(op)
+
+        t.ensuredvicanvas()
+        for op in t.dvicanvas.items:
+            if isinstance(op, type1font.text_pt):
+                x = textpos + unit.t_pt*(op.x_pt+op.width_pt/2) # Make sure we rotate with respect to the middle of the character.
+                op.x_pt =  -op.width_pt/2
+                c.insert(op, [dp.path.trafo(x)])
+            else:
+                c.insert(op)
+
+         
+        dp.ornaments.insert(c)
+
 
 class shownormpath(deco, attr.attr):
 
