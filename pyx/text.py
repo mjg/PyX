@@ -778,6 +778,7 @@ class texrunner:
                        waitfortex=config.getint("text", "waitfortex", 60),
                        showwaitfortex=config.getint("text", "showwaitfortex", 5),
                        texipc=config.getboolean("text", "texipc", 0),
+                       singlecharmode=0,
                        texdebug=None,
                        dvidebug=0,
                        errordebug=1,
@@ -800,6 +801,7 @@ class texrunner:
         self.waitfortex = waitfortex
         self.showwaitfortex = showwaitfortex
         self.texipc = texipc
+        self.singlecharmode = singlecharmode
         if texdebug is not None:
             if texdebug[-4:] == ".tex":
                 self.texdebug = open(texdebug, "w")
@@ -1046,7 +1048,7 @@ class texrunner:
         self.execute(None, self.defaulttexmessagesend + self.texmessagesend)
         dvifilename = "%s.dvi" % self.texfilename
         if not self.texipc:
-            self.dvifile = dvifile.dvifile(dvifilename, self.fontmap, debug=self.dvidebug)
+            self.dvifile = dvifile.dvifile(dvifilename, self.fontmap, debug=self.dvidebug, singlecharmode=self.singlecharmode)
             page = 1
             for box in self.needdvitextboxes:
                 box.setdvicanvas(self.dvifile.readpage([ord("P"), ord("y"), ord("X"), page, 0, 0, 0, 0, 0, 0]))
@@ -1204,7 +1206,7 @@ class texrunner:
             raise
         if self.texipc:
             if first:
-                self.dvifile = dvifile.dvifile("%s.dvi" % self.texfilename, self.fontmap, debug=self.dvidebug)
+                self.dvifile = dvifile.dvifile("%s.dvi" % self.texfilename, self.fontmap, debug=self.dvidebug, singlecharmode=self.singlecharmode)
         match = self.PyXBoxPattern.search(self.texmessage)
         if not match or int(match.group("page")) != self.page:
             raise TexResultError("box extents not found", self)
@@ -1263,7 +1265,7 @@ class texrunner:
                          "\\vfill\\supereject%%\n" % text, [texmessage.ignore])
             if self.texipc:
                 if self.dvifile is None:
-                    self.dvifile = dvifile.dvifile("%s.dvi" % self.texfilename, self.fontmap, debug=self.dvidebug)
+                    self.dvifile = dvifile.dvifile("%s.dvi" % self.texfilename, self.fontmap, debug=self.dvidebug, singlecharmode=self.singlecharmode)
             else:
                 raise RuntimeError("textboxes currently needs texipc")
             lastparnos = parnos

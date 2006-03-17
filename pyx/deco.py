@@ -29,7 +29,7 @@
 from __future__ import nested_scopes
 
 import sys, math
-import attr, canvas, color, path, normpath, style, trafo, unit
+import attr, canvas, color, path, normpath, style, trafo, type1font, unit
 
 try:
     from math import radians
@@ -566,16 +566,6 @@ class text(deco, attr.attr):
         t.linealign(self.textdist, math.cos(self.angle*math.pi/180), math.sin(self.angle*math.pi/180))
         dp.ornaments.insert(t)
 
-import dvifile,type1font
-
-oldputchar = dvifile.dvifile.putchar
-
-def newputchar(self, char, advancepos=1):
-  oldputchar(self, char, advancepos)
-  self.flushtext()
-
-dvifile.dvifile.putchar = newputchar
-
 class curvedtext(deco, attr.attr):
     """a text decorator for curved text"""
 
@@ -606,23 +596,26 @@ class curvedtext(deco, attr.attr):
             textpos = self.relarclenpos * dp.path.arclen()
 
         c = canvas.canvas()
+
+        singlecharmode=texrunner.singlecharmode # usually 0
+        texrunner.singlecharmode=1
         t = texrunner.text(0, 0, self.text, self.textattrs)
 
-        for op in t.items: # copy over attr ops (colour...)
-            if not isinstance(op, canvas._canvas): # should not occur before ensuredvicanvas
-                c.insert(op)
+        # copy over attr ops (colour...)
+        # isinstance(op, canvas._canvas) should not occur before ensuredvicanvas; should we even care to check?
+        [ c.insert(op) for op in t.items if not isinstance(op, canvas._canvas)]
 
         t.ensuredvicanvas()
-        for op in t.dvicanvas.items:
-            if isinstance(op, type1font.text_pt):
-                x = textpos + unit.t_pt*(op.x_pt+op.width_pt/2) # Make sure we rotate with respect to the middle of the character.
-                op.x_pt =  -op.width_pt/2
-                c.insert(op, [dp.path.trafo(x)])
-            else:
-                c.insert(op)
+        texrunner.singlecharmode=singlecharmode
 
+        items = t.dvicanvas.items
+        xs = [item.bbox().center()[0] for item in items]
+        trafos = dp.path.trafo([textpos +x for x in xs])
+        for x, op, atrafo in zip(xs, items, trafos):
+            c.insert(op, [atrafo, trafo.translate(-x, 0)])
          
         dp.ornaments.insert(c)
+
 
 
 class shownormpath(deco, attr.attr):
