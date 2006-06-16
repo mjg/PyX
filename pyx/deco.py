@@ -28,7 +28,7 @@
 from __future__ import nested_scopes
 
 import sys, math
-import attr, canvas, color, path, normpath, style, trafo, unit
+import attr, canvas, color, path, normpath, style, trafo, type1font, unit
 
 try:
     from math import radians
@@ -548,6 +548,65 @@ class text(deco, attr.attr):
         t = texrunner.text(x, y, self.text, textattrs)
         t.linealign(self.textdist, math.cos(self.angle*math.pi/180), math.sin(self.angle*math.pi/180))
         dp.ornaments.insert(t)
+
+class curvedtext(deco, attr.attr):
+    """a text decorator for curved text
+
+    - text: is typeset along the path to which this decorator is applied
+    - relarclenpos: position for the base point of the text (default: 0)
+    - arlenfrombegin, arclenfromend: alternative ways of specifying the position of the base point; 
+                                     use of relarclenpos, arclenfrombegin and arclenfromend is mutually exclusive
+    - textattrs, texrunner: standard text arguments (defaults: [] resp None)
+    
+    """
+
+    def __init__(self, text, textattrs=[], 
+                       relarclenpos=0, arclenfrombegin=None, arclenfromend=None,
+                       texrunner=None):
+        if arclenfrombegin is not None and arclenfromend is not None:
+            raise ValueError("either set arclenfrombegin or arclenfromend")
+        self.text = text
+        self.textattrs = textattrs
+        self.relarclenpos = relarclenpos
+        self.arclenfrombegin = arclenfrombegin
+        self.arclenfromend = arclenfromend
+        self.texrunner = texrunner
+
+    def decorate(self, dp, texrunner):
+        if self.texrunner:
+            texrunner = self.texrunner
+        import text as textmodule
+
+        dp.ensurenormpath()
+        if self.arclenfrombegin is not None:
+            textpos = dp.path.begin() + self.arclenfrombegin
+        elif self.arclenfromend is not None:
+            textpos = dp.path.end() - self.arclenfromend
+        else:
+            # relarcpos is used if neither arcfrombegin nor arcfromend is given
+            textpos = self.relarclenpos * dp.path.arclen()
+
+        c = canvas.canvas()
+
+        singlecharmode=texrunner.singlecharmode # usually 0
+        texrunner.singlecharmode=1
+        t = texrunner.text(0, 0, self.text, self.textattrs)
+
+        # copy over attr ops (colour...)
+        # isinstance(op, canvas._canvas) should not occur before ensuredvicanvas; should we even care to check?
+        [ c.insert(op) for op in t.items if not isinstance(op, canvas._canvas)]
+
+        t.ensuredvicanvas()
+        texrunner.singlecharmode=singlecharmode
+
+        items = t.dvicanvas.items
+        xs = [item.bbox().center()[0] for item in items]
+        trafos = dp.path.trafo([textpos +x for x in xs])
+        for x, op, atrafo in zip(xs, items, trafos):
+            c.insert(op, [trafo.translate(-x, 0), atrafo]) # reversed trafos: fix for change in canvas.py from r2728 to 2730
+         
+        dp.ornaments.insert(c)
+
 
 
 class shownormpath(deco, attr.attr):
