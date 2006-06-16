@@ -700,9 +700,9 @@ class textbox(box.rect, canvas._canvas):
             raise RuntimeError("multiple call to setdvicanvas")
         self.dvicanvas = dvicanvas
 
-    def ensuredvicanvas(self):
+    def ensuredvicanvas(self, singlecharmode=0):
         if self.dvicanvas is None:
-            self.finishdvi()
+            self.finishdvi(singlecharmode=singlecharmode)
             assert self.dvicanvas is not None, "finishdvi is broken"
         if not self.insertdvicanvas:
             self.insert(self.dvicanvas, [self.texttrafo])
@@ -1024,14 +1024,14 @@ class texrunner:
         else:
             raise TexResultError("TeX didn't respond as expected within the timeout period (%i seconds)." % self.waitfortex, self)
 
-    def finishdvi(self, ignoretail=0):
+    def finishdvi(self, ignoretail=0, singlecharmode=0):
         """finish TeX/LaTeX and read the dvifile
         - this method ensures that all textboxes can access their
           dvicanvas"""
         self.execute(None, self.defaulttexmessagesend + self.texmessagesend)
         dvifilename = "%s.dvi" % self.texfilename
         if not self.texipc:
-            self.dvifile = dvifile.DVIfile(dvifilename, debug=self.dvidebug)
+            self.dvifile = dvifile.DVIfile(dvifilename, debug=self.dvidebug, singlecharmode=singlecharmode)
             page = 1
             for box in self.needdvitextboxes:
                 box.setdvicanvas(self.dvifile.readpage([ord("P"), ord("y"), ord("X"), page, 0, 0, 0, 0, 0, 0], fontmap=box.fontmap))
@@ -1151,7 +1151,7 @@ class texrunner:
 
     PyXBoxPattern = re.compile(r"PyXBox:page=(?P<page>\d+),lt=(?P<lt>-?\d*((\d\.?)|(\.?\d))\d*)pt,rt=(?P<rt>-?\d*((\d\.?)|(\.?\d))\d*)pt,ht=(?P<ht>-?\d*((\d\.?)|(\.?\d))\d*)pt,dp=(?P<dp>-?\d*((\d\.?)|(\.?\d))\d*)pt:")
 
-    def text(self, x, y, expr, textattrs=[], texmessages=[], fontmap=None):
+    def text(self, x, y, expr, textattrs=[], texmessages=[], fontmap=None, singlecharmode=0):
         """create text by passing expr to TeX/LaTeX
         - returns a textbox containing the result from running expr thru TeX/LaTeX
         - the box center is set to x, y
@@ -1190,7 +1190,7 @@ class texrunner:
             raise e
         if self.texipc:
             if first:
-                self.dvifile = dvifile.DVIfile("%s.dvi" % self.texfilename, debug=self.dvidebug)
+                self.dvifile = dvifile.DVIfile("%s.dvi" % self.texfilename, debug=self.dvidebug, singlecharmode=singlecharmode)
         match = self.PyXBoxPattern.search(self.texmessage)
         if not match or int(match.group("page")) != self.page:
             raise TexResultError("box extents not found", self)
