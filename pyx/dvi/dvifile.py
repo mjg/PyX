@@ -112,12 +112,13 @@ class _restoretrafo(canvasitem.canvasitem):
 
 class DVIfile:
 
-    def __init__(self, filename, debug=0, debugfile=sys.stdout):
+    def __init__(self, filename, debug=0, debugfile=sys.stdout, singlecharmode=0):
         """ opens the dvi file and reads the preamble """
         self.filename = filename
         self.debug = debug
         self.debugfile = debugfile
         self.debugstack = []
+        self.singlecharmode = singlecharmode
 
         self.fonts = {}
         self.activefont = None
@@ -197,7 +198,7 @@ class DVIfile:
             self.activetext[2].append(char)
             self.pos[_POS_H] += dx
 
-        if not advancepos:
+        if (not advancepos) or self.singlecharmode:
             self.flushtext(fontmap)
 
     def usefont(self, fontnum, id1234, fontmap):
