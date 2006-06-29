@@ -31,6 +31,7 @@ displayed. """
 
 from __future__ import nested_scopes
 import os
+import cStringIO
 
 class canvasitem:
 
@@ -74,6 +75,7 @@ class canvasitem:
 
 import attr, deco, deformer, document, style, trafo, type1font
 import bbox as bboxmodule
+import pswriter
 
 
 #
@@ -358,3 +360,40 @@ class canvas(_canvas):
         gscommand += " -"
         input = os.popen(gscommand, "w")
         self.writeEPSfile(input, **kwargs)
+
+
+class ref(canvasitem):
+    """a stupid object insertable into a canvas; it needs to get all the
+    information in the constructor"""
+
+    def __init__(self, bbox, output, insertcanvas):
+        self._bbox = bbox
+        self._output = output
+        self._insertcanvas = insertcanvas
+
+    def bbox(self):
+        return self._bbox
+
+    def processPS(self, file, writer, context, registry, bbox):
+        stringfile = cStringIO.StringIO()
+        _canvas.processPS(self._insertcanvas, stringfile, writer, context, registry, bbox)
+        canvasproc = "gsave\nmatrix translate concat\n%sgrestore\n" % stringfile.getvalue()
+        stringfile.close()
+        registry.add(pswriter.PSdefinition(self._insertcanvas._id, "{\n" + canvasproc + "}"))
+        file.write(self._output)
+
+    # need help here
+    def processPDF(self, file, writer, context, registry, bbox): 
+        raise NotImplementedError("ref canvasitem not implemented for PDF")
+
+class translateablecanvas(_canvas):
+    "a canvas which is efficiently translateable"
+     
+    def __init__(self, *args, **kwargs):
+        _canvas.__init__(self, *args, **kwargs)
+        self._id = "symbol%d" % id(self)
+ 
+    def translate_pt(self, x_pt, y_pt):
+        """returns an insertable object which stores only the position and
+        a reference to a prolog definition"""
+        return ref(self.bbox().transformed(trafo.translate_pt(x_pt, y_pt)), "%g %g %s\n" % (x_pt, y_pt, self._id), self)
