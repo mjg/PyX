@@ -30,3 +30,4 @@ g.plot(graph.data.function("y(x)=x*x", min=-1, max=1, points=1000),
 #       [graph.style.symbol(graph.style.symbol.circle, symbolattrs=[deco.filled,color.rgb.blue, deco.stroked.clear])])
        [insertstyle(graph.style.symbol.circle, symbolattrs=[deco.filled,color.rgb.blue, deco.stroked.clear])])
 g.writeEPSfile("insert")
+g.writePDFfile("insert")

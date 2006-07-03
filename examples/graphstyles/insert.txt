@@ -6,5 +6,5 @@ Correspondingly, the output size scales with the number of times the symbol is
 used. The code in this example shows how one can easily define a graph style
 which uses a translatable canvas on which the symbol is drawn once and then
 reused multiple times. For the EPS output, this reduces the file from 104kB to
-47kB (large taken up by the fonts).
+47kB (large taken up by the fonts), for the PDF output from 238kB to 20kB.
 

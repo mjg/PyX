@@ -31,7 +31,7 @@ displayed. """
 
 from __future__ import nested_scopes
 import os
-import cStringIO
+import cStringIO, zlib
 
 class canvasitem:
 
@@ -75,7 +75,7 @@ class canvasitem:
 
 import attr, deco, deformer, document, style, trafo, type1font
 import bbox as bboxmodule
-import pswriter
+import pswriter, pdfwriter
 
 
 #
@@ -366,34 +366,75 @@ class ref(canvasitem):
     """a stupid object insertable into a canvas; it needs to get all the
     information in the constructor"""
 
-    def __init__(self, bbox, output, insertcanvas):
+    def __init__(self, bbox, x_pt, y_pt, insertcanvas):
         self._bbox = bbox
-        self._output = output
+        self._x_pt = x_pt
+        self._y_pt = y_pt
         self._insertcanvas = insertcanvas
 
     def bbox(self):
         return self._bbox
 
     def processPS(self, file, writer, context, registry, bbox):
+        bbox += self._bbox
         stringfile = cStringIO.StringIO()
         _canvas.processPS(self._insertcanvas, stringfile, writer, context, registry, bbox)
         canvasproc = "gsave\nmatrix translate concat\n%sgrestore\n" % stringfile.getvalue()
         stringfile.close()
-        registry.add(pswriter.PSdefinition(self._insertcanvas._id, "{\n" + canvasproc + "}"))
-        file.write(self._output)
+        registry.add(pswriter.PSdefinition(self._insertcanvas.id, "{\n" + canvasproc + "}"))
+        file.write("%g %g %s\n" % (self._x_pt, self._y_pt, self._insertcanvas.id))
 
-    # need help here
     def processPDF(self, file, writer, context, registry, bbox): 
-        raise NotImplementedError("ref canvasitem not implemented for PDF")
+        bbox += self._bbox
+        ## the following just inserts the canvas again and again (zlib compresses this nicely)
+        # c = canvas.canvas([trafo.translate_pt(self._x_pt, self._y_pt)])
+        # c.insert(self._insertcanvas)
+        # c.processPDF(file, writer, context, registry, bbox)
+        ## or use Form XObjects:
+        stringfile = cStringIO.StringIO()
+        _canvas.processPDF(self._insertcanvas, stringfile, writer, context, registry, bbox)
+        canvasproc = stringfile.getvalue()
+        stringfile.close()
+        registry.add(PDFXForm(canvasproc, self._insertcanvas.bbox(), writer, registry, self._insertcanvas.id)) 
+        file.write("q 1 0 0 1 %f %f cm /%s Do Q\n" % (self._x_pt, self._y_pt, self._insertcanvas.id))
 
+class PDFXForm(pdfwriter.PDFobject):
+
+    def __init__(self, content, bbox, writer, registry, _id=None):
+        """create a Form XObject and register it as resource
+          - content is the PDF content
+          - _id is the resource name
+        """
+        pdfwriter.PDFobject.__init__(self, "xform", _id)
+        self.bbox = bbox
+        self.content = content
+        registry.addresource("XObject", _id, self, "PDF")
+
+    def write(self, file, writer, registry):
+        if writer.compress:
+            content = zlib.compress(self.content)
+        else:
+            content = self.content
+        file.write("<<\n"
+                   "/Length %i\n" % len(content)) 
+        file.write("/Type /XObject /Subtype /Form /FormType 1\n"
+                   "/BBox [%f %f %f %f]\n"
+                   "/Resources << /ProcSet [/PDF] >>\n" % self.bbox.highrestuple_pt())
+        if writer.compress:
+            file.write("/Filter /FlateDecode\n")
+        file.write(">>\n"
+                   "stream\n")
+        file.write(content)
+        file.write("endstream\n")
+ 
 class translateablecanvas(_canvas):
     "a canvas which is efficiently translateable"
      
     def __init__(self, *args, **kwargs):
         _canvas.__init__(self, *args, **kwargs)
-        self._id = "symbol%d" % id(self)
+        self.id = "symbol%d" % id(self)
  
     def translate_pt(self, x_pt, y_pt):
         """returns an insertable object which stores only the position and
         a reference to a prolog definition"""
-        return ref(self.bbox().transformed(trafo.translate_pt(x_pt, y_pt)), "%g %g %s\n" % (x_pt, y_pt, self._id), self)
+        return ref(self.bbox().transformed(trafo.translate_pt(x_pt, y_pt)), x_pt, y_pt, self)
