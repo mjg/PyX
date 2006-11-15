@@ -23,3 +23,7 @@ well, when you do not create a parbox.
 !! Note that the alignment features are implemented in such a way, that they work
 in both, TeX and LaTeX mode. Furthermore, you can always influence the
 alignment of the box contents by appropriate TeX and LaTeX commands as well.
+
+!! If you want to enforce line breaks in a parbox use `\linebreak`, not `\newline` (which
+is equivalent to `\\`). `\linebreak` makes sure that horizontal alignment is preserved
+throughout the text box.
