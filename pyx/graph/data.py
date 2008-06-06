@@ -573,7 +573,7 @@ class function(_data):
         return dynamiccolumns
 
 
-class functionxy(function):
+class functionlambda(function):
 
     def __init__(self, f, min=None, max=None, **kwargs):
         function.__init__(self, "y(x)=f(x)", context={"f": f}, min=min, max=max, **kwargs)
@@ -606,7 +606,137 @@ class paramfunction(_data):
         self.columnnames = self.columns.keys()
 
 
-class paramfunctionxy(paramfunction):
+class paramfunctionlambda(paramfunction):
 
     def __init__(self, f, min, max, **kwargs):
         paramfunction.__init__(self, "t", min, max, "x, y = f(t)", context={"f": f}, **kwargs)
+
+
+class functionxy(_data):
+
+    defaultstyles = defaultlines
+
+    assignmentpattern = re.compile(r"\s*([a-z_][a-z0-9_]*)\s*\(\s*([a-z_][a-z0-9_]*)\s*,\s*([a-z_][a-z0-9_]*)\s*\)\s*=", re.IGNORECASE)
+
+    def __init__(self, expression, title=_notitle, xmin=None, xmax=None, ymin=None, ymax=None,
+                 points=10, context={}):
+
+        if title is _notitle:
+            self.title = expression
+        else:
+            self.title = title
+        self.xmin = xmin
+        self.xmax = xmax
+        self.ymin = ymin
+        self.ymax = ymax
+        self.numberofpoints = points
+        self.context = context.copy() # be safe on late evaluations
+        m = self.assignmentpattern.match(expression)
+        if m:
+            self.zname, self.xname, self.yname = m.groups()
+            expression = expression[m.end():]
+        else:
+            raise ValueError("z(x,y)=... or similar expected")
+        if context.has_key(self.xname):
+            raise ValueError("xname in context")
+        if context.has_key(self.yname):
+            raise ValueError("yname in context")
+        self.expression = compile(expression.strip(), __file__, "eval")
+        self.columns = {}
+        self.columnnames = [self.xname, self.yname, self.zname]
+
+    def dynamiccolumns(self, graph):
+        dynamiccolumns = {self.xname: [], self.yname: [], self.zname: []}
+
+        xaxis = graph.axes[self.xname]
+        yaxis = graph.axes[self.yname]
+        from pyx.graph.axis import logarithmic
+        logxaxis = isinstance(xaxis.axis, logarithmic)
+        logyaxis = isinstance(yaxis.axis, logarithmic)
+        if self.xmin is not None:
+            xmin = self.xmin
+        else:
+            xmin = xaxis.data.min
+        if self.xmax is not None:
+            xmax = self.xmax
+        else:
+            xmax = xaxis.data.max
+        if logxaxis:
+            xmin = math.log(xmin)
+            xmax = math.log(xmax)
+        if self.ymin is not None:
+            ymin = self.ymin
+        else:
+            ymin = yaxis.data.min
+        if self.ymax is not None:
+            ymax = self.ymax
+        else:
+            ymax = yaxis.data.max
+        if logyaxis:
+            ymin = math.log(ymin)
+            ymax = math.log(ymax)
+        for i in range(self.numberofpoints):
+            x = xmin + (xmax-xmin)*i / (self.numberofpoints-1.0)
+            if logxaxis:
+                x = math.exp(x)
+            self.context[self.xname] = x
+            for j in range(self.numberofpoints):
+                y = ymin + (ymax-ymin)*j / (self.numberofpoints-1.0)
+                if logyaxis:
+                    y = math.exp(y)
+                dynamiccolumns[self.xname].append(x)
+                dynamiccolumns[self.yname].append(y)
+                self.context[self.yname] = y
+                try:
+                    z = eval(self.expression, _mathglobals, self.context)
+                except (ArithmeticError, ValueError):
+                    z = None
+                dynamiccolumns[self.zname].append(z)
+        return dynamiccolumns
+
+
+class functionxylambda(functionxy):
+
+    def __init__(self, f, xmin=None, xmax=None, ymin=None, ymax=None, **kwargs):
+        functionxy.__init__(self, "z(x,y)=f(x,y)", context={"f": f}, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax, **kwargs)
+
+
+class paramtsfunction(_data):
+
+    defaultstyles = defaultlines
+
+    def __init__(self, tname, tmin, tmax, sname, smin, smax, expression, title=_notitle, points=10, context={}):
+        if context.has_key(tname):
+            raise ValueError("tname in context")
+        if context.has_key(sname):
+            raise ValueError("sname in context")
+        if title is _notitle:
+            self.title = expression
+        else:
+            self.title = title
+        varlist, expression = expression.split("=")
+        expression = compile(expression.strip(), __file__, "eval")
+        keys = [key.strip() for key in varlist.split(",")]
+        self.columns = dict([(key, []) for key in keys])
+        context = context.copy()
+        for i in range(points):
+            tparam = tmin + (tmax-tmin)*i / (points-1.0)
+            context[tname] = tparam
+            for j in range(points):
+                sparam = smin + (smax-smin)*j / (points-1.0)
+                context[sname] = sparam
+                values = eval(expression, _mathglobals, context)
+                for key, value in zip(keys, values):
+                    self.columns[key].append(value)
+        if len(keys) != len(values):
+            raise ValueError("unpack tuple of wrong size")
+        self.columnnames = self.columns.keys()
+
+
+class paramtsfunctionlambda(paramtsfunction):
+
+    def __init__(self, f, tmin, tmax, smin, smax, **kwargs):
+        paramtsfunction.__init__(self, "t", tmin, tmax, "s", smin, smax, "x, y, z = f(t,s)", context={"f": f}, **kwargs)
+
+
+
