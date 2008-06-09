@@ -282,10 +282,10 @@ class _canvas(canvasitem.canvasitem):
 
 def _wrappedindocument(method):
     def wrappedindocument(self, file=None, **kwargs):
-        d = document.document([document.page(self, **kwargs)])
+        d = document.document([document.page(self)])
         self.__name__ = method.__name__
         self.__doc__ = method.__doc__
-        return method(d, file)
+        return method(d, file, **kwargs)
     return wrappedindocument
 
 
