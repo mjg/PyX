@@ -59,6 +59,9 @@ are summarized in the following table:
 +---------------------+-----------------------------------------------+
 | ``kpsearch=0``      | Search for file using the kpathsea library.   |
 +---------------------+-----------------------------------------------+
+| ``hiresbbox=0``     | Use the high resolution bounding box rather   |
+|                     | than the normal one.                          |
++---------------------+-----------------------------------------------+
 
 .. _epsfile:
 

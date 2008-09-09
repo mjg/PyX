@@ -137,7 +137,7 @@ class linefilereader:
         self.file.close()
 
 
-def _readbbox(file):
+def _readbbox(file, hiresbbox=0):
     """returns bounding box of EPS file filename"""
 
     file = linefilereader(file)
@@ -146,20 +146,26 @@ def _readbbox(file):
     if not file.readline().startswith("%!"):
         raise IOError("file doesn't start with a '%!' header comment")
 
+    if hiresbbox:
+        bboxmatch = "%%HiResBoundingBox:"
+        bboxtype = float
+    else:
+        bboxmatch = "%%BoundingBox:"
+        bboxtype = int
     bboxatend = 0
     # parse the header (use the first BoundingBox)
     while 1:
         line = file.readline()
         if not line:
             break
-        if line.startswith("%%BoundingBox:") and not bboxatend:
+        if line.startswith(bboxmatch) and not bboxatend:
             values = line.split(":", 1)[1].split()
             if values == ["(atend)"]:
                 bboxatend = 1
             else:
                 if len(values) != 4:
                     raise IOError("invalid number of bounding box values")
-                return bbox.bbox_pt(*map(int, values))
+                return bbox.bbox_pt(*map(bboxtype, values))
         elif (line.rstrip() == "%%EndComments" or
               (len(line) >= 2 and line[0] != "%" and line[1] not in string.whitespace)):
             # implicit end of comments section
@@ -213,11 +219,11 @@ def _readbbox(file):
     line = True
     while line:
         line = file.readline(EOFmsg=None)
-        if line.startswith("%%BoundingBox:"):
+        if line.startswith(bboxmatch):
             values = line.split(":", 1)[1].split()
             if len(values) != 4:
                 raise IOError("invalid number of bounding box values")
-            usebbox = bbox.bbox_pt(*map(int, values))
+            usebbox = bbox.bbox_pt(*map(bboxtype, values))
     if not usebbox:
         raise IOError("missing bounding box information in document trailer")
     return usebbox
@@ -231,7 +237,7 @@ class epsfile(canvasitem.canvasitem):
                  x, y, filename,
                  width=None, height=None, scale=None, align="bl",
                  clip=1, translatebbox=1, bbox=None,
-                 kpsearch=0):
+                 kpsearch=0, hiresbbox=0):
         """inserts epsfile
 
         Object for an EPS file named filename at position (x,y). Width, height,
@@ -240,7 +246,8 @@ class epsfile(canvasitem.canvasitem):
         translatebbox is not set, the EPS graphics is not translated to the
         corresponding origin. If bbox is not None, it overrides the bounding
         box in the epsfile itself. If kpsearch is set then filename is searched
-        using the kpathsea library.
+        using the kpathsea library. If hiresbbox is set then the high resolution
+        bbox is used instead of the normal one.
         """
 
         self.x_pt = unit.topt(x)
@@ -251,7 +258,7 @@ class epsfile(canvasitem.canvasitem):
             self.mybbox = bbox
         else:
             epsfile = self.open()
-            self.mybbox = _readbbox(epsfile)
+            self.mybbox = _readbbox(epsfile, hiresbbox=hiresbbox)
             epsfile.close()
 
         # determine scaling in x and y direction
