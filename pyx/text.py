@@ -23,7 +23,7 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 import glob, os, threading, Queue, traceback, re, tempfile, sys, atexit, time
-import config, unit, box, canvas, trafo, version, attr, style, dvifile
+import config, siteconfig, unit, box, canvas, trafo, version, attr, style, dvifile
 
 ###############################################################################
 # texmessages
@@ -103,14 +103,19 @@ class _texmessagestart(texmessage):
     startpattern = re.compile(r"This is [-0-9a-zA-Z\s_]*TeX")
 
     def check(self, texrunner):
+        # check for "This is e-TeX"
         m = self.startpattern.search(texrunner.texmessageparsed)
         if not m:
             raise TexResultError("TeX startup failed", texrunner)
         texrunner.texmessageparsed = texrunner.texmessageparsed[m.end():]
+
+        # check for filename to be processed
         try:
             texrunner.texmessageparsed = texrunner.texmessageparsed.split("%s.tex" % texrunner.texfilename, 1)[1]
         except (IndexError, ValueError):
             raise TexResultError("TeX running startup file failed", texrunner)
+
+        # check for \raiseerror -- just to be sure that communication works
         try:
             texrunner.texmessageparsed = texrunner.texmessageparsed.split("*! Undefined control sequence.\n<*> \\raiseerror\n               %\n", 1)[1]
         except (IndexError, ValueError):
@@ -177,6 +182,20 @@ class _texmessagepyxpageout(texmessage):
             raise TexResultError("PyXPageOutMarker expected", texrunner)
 
 
+class _texmessagefontsubstitution(texmessage):
+    """validates the font substituion Warning"""
+
+    __implements__ = _Itexmessage
+
+    pattern = re.compile("LaTeX Font Warning: Font shape (?P<font>.*) in size <(?P<orig>.*)> not available\s*\(Font\)(.*) size <(?P<subst>.*)> substituted on input line (?P<line>.*)\.")
+
+    def check(self, texrunner):
+        m = self.pattern.search(texrunner.texmessageparsed)
+        if m:
+            texrunner.texmessageparsed = texrunner.texmessageparsed[:m.start()] + texrunner.texmessageparsed[m.end():]
+            raise TexResultWarning("LaTeX Font Warning on input line %s" % (m.group('line')), texrunner)
+
+
 class _texmessagetexend(texmessage):
     """validates TeX/LaTeX finish"""
 
@@ -194,11 +213,22 @@ class _texmessagetexend(texmessage):
                 texrunner.texmessageparsed = s1 + s2
             except (IndexError, ValueError):
                 pass
+
+        # pass font size summary over to PyX user
+        fontpattern = re.compile(r"LaTeX Font Warning: Size substitutions with differences\s*\(Font\).* have occurred.\s*")
+        m = fontpattern.search(texrunner.texmessageparsed)
+        if m:
+            sys.stderr.write("LaTeX has detected Font Size substituion differences.\n")
+            texrunner.texmessageparsed = texrunner.texmessageparsed[:m.start()] + texrunner.texmessageparsed[m.end():]
+
+        # check for "(see the transcript file for additional information)"
         try:
             s1, s2 = texrunner.texmessageparsed.split("(see the transcript file for additional information)", 1)
             texrunner.texmessageparsed = s1 + s2
         except (IndexError, ValueError):
             pass
+
+        # check for "Output written on ...dvi (1 page, 220 bytes)."
         dvipattern = re.compile(r"Output written on %s\.dvi \((?P<page>\d+) pages?, \d+ bytes\)\." % texrunner.texfilename)
         m = dvipattern.search(texrunner.texmessageparsed)
         if texrunner.page:
@@ -213,6 +243,8 @@ class _texmessagetexend(texmessage):
                 texrunner.texmessageparsed = s1 + s2
             except (IndexError, ValueError):
                 raise TexResultError("no dvifile expected", texrunner)
+
+        # check for "Transcript written on ...log."
         try:
             s1, s2 = texrunner.texmessageparsed.split("Transcript written on %s.log." % texrunner.texfilename, 1)
             texrunner.texmessageparsed = s1 + s2
@@ -340,6 +372,7 @@ texmessage.loadfd = _texmessageloadfd()
 texmessage.graphicsload = _texmessagegraphicsload()
 texmessage.ignore = _texmessageignore()
 texmessage.warning = _texmessagewarning()
+texmessage.fontsubstitution = _texmessagefontsubstitution()
 
 
 ###############################################################################
@@ -541,10 +574,9 @@ class _readpipe(threading.Thread):
             pass
         while len(read):
             # universal EOL handling (convert everything into unix like EOLs)
-            read.replace("\r", "")
-            if not len(read) or read[-1] != "\n":
-                read += "\n"
-            self.gotqueue.put(read) # report, whats readed
+            # XXX is this necessary on pipes?
+            read = read.replace("\r", "").replace("\n", "") + "\n"
+            self.gotqueue.put(read) # report, whats read
             if self.expect is not None and read.find(self.expect) != -1:
                 self.gotevent.set() # raise the got event, when the output was expected (XXX: within a single line)
             read = self.pipe.readline() # read again
@@ -616,14 +648,16 @@ class textbox(box.rect, canvas._canvas):
         self.ensuredvicanvas()
         canvas._canvas.outputPS(self, file)
 
+    def outputPDF(self, file):
+        self.ensuredvicanvas()
+        canvas._canvas.outputPDF(self, file)
+
 
 def _cleantmp(texrunner):
     """get rid of temporary files
     - function to be registered by atexit
     - files contained in usefiles are kept"""
     if texrunner.texruns: # cleanup while TeX is still running?
-        texrunner.texruns = 0
-        texrunner.texdone = 1
         texrunner.expectqueue.put_nowait(None)              # do not expect any output anymore
         if texrunner.mode == "latex":                       # try to immediately quit from TeX or LaTeX
             texrunner.texinput.write("\n\\catcode`\\@11\\relax\\@@end\n")
@@ -632,6 +666,8 @@ def _cleantmp(texrunner):
         texrunner.texinput.close()                          # close the input queue and
         if not texrunner.waitforevent(texrunner.quitevent): # wait for finish of the output
             return                                          # didn't got a quit from TeX -> we can't do much more
+        texrunner.texruns = 0
+        texrunner.texdone = 1
     for usefile in texrunner.usefiles:
         extpos = usefile.rfind(".")
         try:
@@ -699,7 +735,7 @@ class texrunner:
         self.docclass = docclass
         self.docopt = docopt
         self.usefiles = usefiles
-        self.fontmap = dvifile.readfontmap(fontmaps.split())
+        self.fontmaps = fontmaps
         self.waitfortex = waitfortex
         self.showwaitfortex = showwaitfortex
         self.texipc = texipc
@@ -768,7 +804,7 @@ class texrunner:
         - the method must not be called, when self.texdone is already set
         - expr should be a string or None
         - when expr is None, TeX/LaTeX is stopped, self.texruns is unset and
-          while self.texdone becomes set
+          self.texdone becomes set
         - when self.preamblemode is set, the expr is passed directly to TeX/LaTeX
         - when self.preamblemode is unset, the expr is passed to \ProcessPyXBox
         - texmessages is a list of texmessage instances"""
@@ -802,6 +838,7 @@ class texrunner:
             self.quitevent = threading.Event() # keeps for end of terminal event
             self.readoutput = _readpipe(self.texoutput, self.expectqueue, self.gotevent, self.gotqueue, self.quitevent)
             self.texruns = 1
+            self.fontmap = dvifile.readfontmap(self.fontmaps.split())
             oldpreamblemode = self.preamblemode
             self.preamblemode = 1
             self.execute("\\scrollmode\n\\raiseerror%\n" # switch to and check scrollmode
@@ -836,8 +873,7 @@ class texrunner:
                 else:
                     lfsname = "%s.lfs" % self.lfs
                 for fulllfsname in [lfsname,
-                                    os.path.join(sys.prefix, "share", "pyx", lfsname),
-                                    os.path.join(os.path.dirname(__file__), "lfs", lfsname)]:
+                                    os.path.join(siteconfig.lfsdir, lfsname)]:
                     try:
                         lfsfile = open(fulllfsname, "r")
                         lfsdef = lfsfile.read()
@@ -847,8 +883,7 @@ class texrunner:
                         pass
                 else:
                     allfiles = (glob.glob("*.lfs") +
-                                glob.glob(os.path.join(sys.prefix, "share", "pyx", "*.lfs")) +
-                                glob.glob(os.path.join(os.path.dirname(__file__), "lfs", "*.lfs")))
+                                glob.glob(os.path.join(siteconfig.lfsdir, "*.lfs")))
                     lfsnames = []
                     for f in allfiles:
                         try:
@@ -866,15 +901,10 @@ class texrunner:
                 self.execute("\\newdimen\\linewidth%\n", [])
             elif self.mode == "latex":
                 if self.pyxgraphics:
-                    for pyxdef in ["pyx.def",
-                                   os.path.join(sys.prefix, "share", "pyx", "pyx.def"),
-                                   os.path.join(os.path.dirname(__file__), "..", "contrib", "pyx.def")]:
-                        try:
-                            open(pyxdef, "r").close()
-                            break
-                        except IOError:
-                            pass
-                    else:
+                    pyxdef = os.path.join(siteconfig.sharedir, "pyx.def")
+                    try:
+                        open(pyxdef, "r").close()
+                    except IOError:
                         IOError("file 'pyx.def' is not available or not readable. Check your installation or turn off the pyxgraphics option.")
                     pyxdef = os.path.abspath(pyxdef).replace(os.sep, "/")
                     self.execute("\\makeatletter%\n"
@@ -1026,7 +1056,7 @@ class texrunner:
         if usefiles is not None:
             self.usefiles = usefiles
         if fontmaps is not None:
-            self.fontmap = dvifile.readfontmap(fontmaps.split())
+            self.fontmaps = fontmaps
         if waitfortex is not None:
             self.waitfortex = waitfortex
         if showwaitfortex is not None:
@@ -1119,7 +1149,7 @@ class texrunner:
         match = self.PyXBoxPattern.search(self.texmessage)
         if not match or int(match.group("page")) != self.page:
             raise TexResultError("box extents not found", self)
-        left, right, height, depth = [unit.x_pt(float(xxx)*72/72.27) for xxx in match.group("lt", "rt", "ht", "dp")]
+        left, right, height, depth = [float(xxx)*72/72.27*unit.x_pt for xxx in match.group("lt", "rt", "ht", "dp")]
         box = textbox(x, y, left, right, height, depth, self.finishdvi, fillstyles)
         for t in trafos:
             box.reltransform(t)
@@ -1130,7 +1160,7 @@ class texrunner:
         return box
 
     def text_pt(self, x, y, expr, *args, **kwargs):
-        return self.text(unit.t_pt(x), unit.t_pt(y), expr, *args, **kwargs)
+        return self.text(x * unit.t_pt, y * unit.t_pt, expr, *args, **kwargs)
 
     PyXVariableBoxPattern = re.compile(r"PyXVariableBox:page=(?P<page>\d+),par=(?P<par>\d+),prevgraf=(?P<prevgraf>\d+):")
 

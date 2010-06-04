@@ -416,7 +416,7 @@ class _missextentsreturnzero(missextents):
         if not _missextentsreturnzero_report:
             atexit.register(_missextentsreturnzero_printreport)
         _missextentsreturnzero_report = 1
-        return map(lambda x: unit.t_pt(0), texinstance.BoxCmds[0].CmdExtents)
+        return map(lambda x: 0 * unit.t_pt, texinstance.BoxCmds[0].CmdExtents)
 
 
 missextents.returnzero = _missextentsreturnzero()
@@ -425,7 +425,7 @@ missextents.returnzero = _missextentsreturnzero()
 class _missextentsreturnzeroquiet(missextents):
 
     def misshandler(self, texinstance):
-        return map(lambda x: unit.t_pt(0), texinstance.BoxCmds[0].CmdExtents)
+        return map(lambda x: 0 * unit.t_pt, texinstance.BoxCmds[0].CmdExtents)
 
 
 missextents.returnzeroquiet = _missextentsreturnzeroquiet()
@@ -738,7 +738,7 @@ class _BoxCmd(_TexCmd):
             for size in texinstance.Sizes:
                 if size[:len(s)] == s:
                     texpt = float(string.rstrip(size.split(":")[3][:-3]))
-                    result.append(unit.t_pt(texpt * 72.0 / 72.27))
+                    result.append(unit.t_pt * texpt * 72.0 / 72.27)
                     break
             else:
                 break
@@ -766,7 +766,7 @@ class _BoxCmd(_TexCmd):
 # tex, latex class
 ################################################################################
 
-class _tex(base.PSCmd, attrlist):
+class _tex(base.canvasitem, attrlist):
 
     """major parts are of tex and latex class are shared and implemented here"""
 

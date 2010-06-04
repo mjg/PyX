@@ -45,16 +45,16 @@ class polygon_pt:
             self.center = self.center[0]/len(self.corners), self.center[1]/len(self.corners)
 
     def path(self, centerradius=None, bezierradius=None, beziersoftness=1):
-        pathels = []
+        pathitems = []
         if centerradius is not None and self.center is not None:
-            r = unit.topt(unit.length(centerradius, default_type="v"))
-            pathels.append(path.arc_pt(self.center[0], self.center[1], r, 0, 360))
-            pathels.append(path.closepath())
+            r = unit.topt(centerradius)
+            pathitems.append(path.arc_pt(self.center[0], self.center[1], r, 0, 360))
+            pathitems.append(path.closepath())
         if bezierradius is None:
-            pathels.append(path.moveto_pt(self.corners[0][0], self.corners[0][1]))
+            pathitems.append(path.moveto_pt(self.corners[0][0], self.corners[0][1]))
             for x, y in self.corners[1:]:
-                pathels.append(path.lineto_pt(x, y))
-            pathels.append(path.closepath())
+                pathitems.append(path.lineto_pt(x, y))
+            pathitems.append(path.closepath())
         else:
             # curved box plotting by Michael Schindler
             l = len(self.corners)
@@ -97,13 +97,13 @@ class polygon_pt:
                 d2 = c[0] +     d2[0] * r[i][1], c[1] +     d2[1] * r[i][1]
                 e  = 0.5 * (f1[0] + f2[0]), 0.5 * (f1[1] + f2[1])
                 if i:
-                    pathels.append(path.lineto_pt(*d1))
+                    pathitems.append(path.lineto_pt(*d1))
                 else:
-                    pathels.append(path.moveto_pt(*d1))
-                pathels.append(path.curveto_pt(*(g1 + f1 + e)))
-                pathels.append(path.curveto_pt(*(f2 + g2 + d2)))
-            pathels.append(path.closepath())
-        return path.path(*pathels)
+                    pathitems.append(path.moveto_pt(*d1))
+                pathitems.append(path.curveto_pt(*(g1 + f1 + e)))
+                pathitems.append(path.curveto_pt(*(f2 + g2 + d2)))
+            pathitems.append(path.closepath())
+        return path.path(*pathitems)
 
     def transform(self, *trafos):
         for trafo in trafos:
@@ -207,10 +207,12 @@ class polygon_pt:
         return self.alignvector_pt(a, dx, dy, self.linealignlinevector_pt, self.linealignpointvector_pt)
 
     def circlealignvector(self, a, dx, dy):
-        return map(unit.t_pt, self.circlealignvector_pt(unit.topt(a), dx, dy))
+        ndx, ndy = self.circlealignvector_pt(unit.topt(a), dx, dy)
+        return ndx * unit.t_pt, ndy * unit.t_pt
 
     def linealignvector(self, a, dx, dy):
-        return map(unit.t_pt, self.linealignvector_pt(unit.topt(a), dx, dy))
+        ndx, ndy = self.linealignvector_pt(unit.topt(a), dx, dy)
+        return ndx * unit.t_pt, ndy * unit.t_pt
 
     def circlealign_pt(self, *args):
         self.transform(trafo.translate_pt(*self.circlealignvector_pt(*args)))
@@ -240,7 +242,7 @@ class polygon_pt:
         return (x1-x2)*dx + (y1-y2)*dy
 
     def extent(self, dx, dy):
-        return unit.t_pt(self.extent_pt(dx, dy))
+        return self.extent_pt(dx, dy) * unit.t_pt
 
     def pointdistance_pt(self, x, y):
         result = None
@@ -262,7 +264,7 @@ class polygon_pt:
         return result
 
     def pointdistance(self, x, y):
-        return unit.t_pt(self.pointdistance_pt(unit.topt(x), unit.topt(y)))
+        return self.pointdistance_pt(unit.topt(x), unit.topt(y)) * unit.t_pt
 
     def boxdistance_pt(self, other, epsilon=1e-10):
         # XXX: boxes crossing and distance calculation is O(N^2)
@@ -287,10 +289,10 @@ class polygon_pt:
         return result
 
     def boxdistance(self, other):
-        return unit.t_pt(self.boxdistance_pt(other))
+        return self.boxdistance_pt(other) * unit.t_pt
 
     def bbox(self):
-        return bbox._bbox(min([x[0] for x in self.corners]),
+        return bbox.bbox_pt(min([x[0] for x in self.corners]),
                           min([x[1] for x in self.corners]),
                           max([x[0] for x in self.corners]),
                           max([x[1] for x in self.corners]))

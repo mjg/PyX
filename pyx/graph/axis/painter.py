@@ -209,7 +209,7 @@ class _axispos:
         return self.vtickpoint(self.convert(x))
 
     def vtickpoint(self, v):
-        return [unit.t_pt(x) for x in self.vtickpoint(v)]
+        return [x * unit.t_pt for x in self.vtickpoint(v)]
 
     def tickdirection(self, x):
         return self.vtickdirection(self.convert(x))
@@ -224,7 +224,7 @@ class pathaxispos(_axispos):
         self.path = p
         self.normpath = path.normpath(p)
         self.arclen_pt = self.normpath.arclen_pt()
-        self.arclen = unit.t_pt(self.arclen_pt)
+        self.arclen = self.arclen_pt * unit.t_pt
         _axispos.__init__(self, convert)
         self.direction = direction
 
@@ -269,7 +269,7 @@ class _title:
 
     defaulttitleattrs = [text.halign.center, text.vshift.mathaxis]
 
-    def __init__(self, titledist="0.3 cm",
+    def __init__(self, titledist=0.3*unit.v_cm,
                        titleattrs=[],
                        titledirection=rotatetext.parallel,
                        titlepos=0.5,
@@ -286,7 +286,7 @@ class _title:
         - texrunner is the texrunner to be used to create text
           (the texrunner is available for further use in derived
           classes as instance variable texrunner)"""
-        self.titledist_str = titledist
+        self.titledist = titledist
         self.titleattrs = titleattrs
         self.titledirection = titledirection
         self.titlepos = titlepos
@@ -296,14 +296,13 @@ class _title:
         if ac is None:
             ac = axiscanvas()
         if axis.title is not None and self.titleattrs is not None:
-            titledist = unit.length(self.titledist_str, default_type="v")
             x, y = axispos.vtickpoint_pt(self.titlepos)
             dx, dy = axispos.vtickdirection(self.titlepos)
             titleattrs = self.defaulttitleattrs + self.titleattrs
             if self.titledirection is not None:
                 titleattrs.append(self.titledirection.trafo(dx, dy))
             title = self.texrunner.text_pt(x, y, axis.title, titleattrs)
-            ac.extent += titledist
+            ac.extent += self.titledist
             title.linealign(ac.extent, -dx, -dy)
             ac.extent += title.extent(dx, dy)
             ac.insert(title)
@@ -322,9 +321,8 @@ class geometricseries(attr.changeattr):
 
 class ticklength(geometricseries): pass
 
-_base = 0.12
+_base = 0.12 * unit.v_cm
 
-#ticklength.short = ticklength("%f cm" % (_base/math.sqrt(64)), 1/goldenmean)
 ticklength.SHORT = ticklength(_base/math.sqrt(64), 1/goldenmean)
 ticklength.SHORt = ticklength(_base/math.sqrt(32), 1/goldenmean)
 ticklength.SHOrt = ticklength(_base/math.sqrt(16), 1/goldenmean)
@@ -339,7 +337,7 @@ ticklength.LONg = ticklength(_base*math.sqrt(16), 1/goldenmean)
 ticklength.LONG = ticklength(_base*math.sqrt(32), 1/goldenmean)
 
 
-class plain(_title):
+class regular(_title):
     """class for painting the ticks and labels of an axis
     - the inherited _title is used to paint the title of
       the axis
@@ -359,7 +357,7 @@ class plain(_title):
                        tickattrs=[],
                        gridattrs=None,
                        basepathattrs=[],
-                       labeldist="0.3 cm",
+                       labeldist=0.3*unit.v_cm,
                        labelattrs=[],
                        labeldirection=None,
                        labelhequalize=0,
@@ -385,12 +383,12 @@ class plain(_title):
         - labelhequalize and labelvequalize (booleans) perform an equal
           alignment for straight vertical and horizontal axes, respectively
         - futher keyword arguments are passed to _axistitle"""
-        self.innerticklength_str = innerticklength
-        self.outerticklength_str = outerticklength
+        self.innerticklength = innerticklength
+        self.outerticklength = outerticklength
         self.tickattrs = tickattrs
         self.gridattrs = gridattrs
         self.basepathattrs = basepathattrs
-        self.labeldist_str = labeldist
+        self.labeldist = labeldist
         self.labelattrs = labelattrs
         self.labeldirection = labeldirection
         self.labelhequalize = labelhequalize
@@ -400,7 +398,6 @@ class plain(_title):
     def paint(self, axispos, axis, ac=None):
         if ac is None:
             ac = axiscanvas()
-        labeldist = unit.length(self.labeldist_str, default_type="v")
         for t in axis.ticks:
             t.temp_v = axis.convert(t)
             t.temp_x, t.temp_y = axispos.vtickpoint_pt(t.temp_v)
@@ -429,27 +426,23 @@ class plain(_title):
                                (not axis.ticks[0].temp_dy and self.labelhequalize)):
             if self.labelattrs is not None:
                 box.linealignequal([t.temp_labelbox for t in axis.ticks if t.labellevel is not None],
-                                   labeldist, -axis.ticks[0].temp_dx, -axis.ticks[0].temp_dy)
+                                   self.labeldist, -axis.ticks[0].temp_dx, -axis.ticks[0].temp_dy)
         else:
             for t in axis.ticks:
                 if t.labellevel is not None and self.labelattrs is not None:
-                    t.temp_labelbox.linealign(labeldist, -t.temp_dx, -t.temp_dy)
+                    t.temp_labelbox.linealign(self.labeldist, -t.temp_dx, -t.temp_dy)
 
         for t in axis.ticks:
             if t.ticklevel is not None:
-                innerticklength = attr.selectattr(self.innerticklength_str, t.ticklevel, maxticklevel)
-                outerticklength = attr.selectattr(self.outerticklength_str, t.ticklevel, maxticklevel)
-                if innerticklength is not None or outerticklength is not None:
-                    if innerticklength is None:
-                        innerticklength = 0
-                    else:
-                        innerticklength = unit.length(innerticklength, default_type="v")
-                    if outerticklength is None:
-                        outerticklength = 0
-                    else:
-                        outerticklength = unit.length(outerticklength, default_type="v")
-                    tickattrs = attr.selectattrs(self.defaulttickattrs + self.tickattrs, t.ticklevel, maxticklevel)
-                    if tickattrs is not None:
+                tickattrs = attr.selectattrs(self.defaulttickattrs + self.tickattrs, t.ticklevel, maxticklevel)
+                if tickattrs is not None:
+                    innerticklength = attr.selectattr(self.innerticklength, t.ticklevel, maxticklevel)
+                    outerticklength = attr.selectattr(self.outerticklength, t.ticklevel, maxticklevel)
+                    if innerticklength is not None or outerticklength is not None:
+                        if innerticklength is None:
+                            innerticklength = 0
+                        if outerticklength is None:
+                            outerticklength = 0
                         innerticklength_pt = unit.topt(innerticklength)
                         outerticklength_pt = unit.topt(outerticklength)
                         x1 = t.temp_x + t.temp_dx * innerticklength_pt
@@ -463,11 +456,12 @@ class plain(_title):
                             ac.extent = -innerticklength
             if self.gridattrs is not None:
                 gridattrs = attr.selectattrs(self.defaultgridattrs + self.gridattrs, t.ticklevel, maxticklevel)
-                ac.stroke(axispos.vgridpath(t.temp_v), gridattrs)
+                if gridattrs is not None:
+                    ac.stroke(axispos.vgridpath(t.temp_v), gridattrs)
             if t.labellevel is not None and self.labelattrs is not None:
                 ac.insert(t.temp_labelbox)
                 ac.labels.append(t.temp_labelbox)
-                extent = t.temp_labelbox.extent(t.temp_dx, t.temp_dy) + labeldist
+                extent = t.temp_labelbox.extent(t.temp_dx, t.temp_dy) + self.labeldist
                 if extent > ac.extent:
                     ac.extent = extent
         if self.basepathattrs is not None:
@@ -487,9 +481,9 @@ class plain(_title):
         return ac
 
 
-class linked(plain):
+class linked(regular):
     """class for painting a linked axis
-    - the inherited plain is used to paint the axis
+    - the inherited regular is used to paint the axis
     - modifies some constructor defaults"""
 
     __implements__ = _Iaxispainter
@@ -500,10 +494,10 @@ class linked(plain):
         """initializes the instance
         - the labelattrs default is set to None thus skipping the labels
         - the titleattrs default is set to None thus skipping the title
-        - all keyword arguments are passed to plain"""
-        plain.__init__(self, labelattrs=labelattrs,
-                             titleattrs=titleattrs,
-                             **kwargs)
+        - all keyword arguments are passed to regular"""
+        regular.__init__(self, labelattrs=labelattrs,
+                               titleattrs=titleattrs,
+                               **kwargs)
 
 
 class subaxispos:
@@ -582,8 +576,8 @@ class split(_title):
 
     defaultbreaklinesattrs = []
 
-    def __init__(self, breaklinesdist="0.05 cm",
-                       breaklineslength="0.5 cm",
+    def __init__(self, breaklinesdist=0.05*unit.v_cm,
+                       breaklineslength=0.5*unit.v_cm,
                        breaklinesangle=-60,
                        breaklinesattrs=[],
                        **args):
@@ -597,8 +591,8 @@ class split(_title):
           axis break lines; a single entry is allowed without being a
           list; None turns off the break lines
         - futher keyword arguments are passed to _title"""
-        self.breaklinesdist_str = breaklinesdist
-        self.breaklineslength_str = breaklineslength
+        self.breaklinesdist = breaklinesdist
+        self.breaklineslength = breaklineslength
         self.breaklinesangle = breaklinesangle
         self.breaklinesattrs = breaklinesattrs
         _title.__init__(self, **args)
@@ -612,8 +606,6 @@ class split(_title):
             if ac.extent < subaxis.axiscanvas.extent:
                 ac.extent = subaxis.axiscanvas.extent
         if self.breaklinesattrs is not None:
-            self.breaklinesdist = unit.length(self.breaklinesdist_str, default_type="v")
-            self.breaklineslength = unit.length(self.breaklineslength_str, default_type="v")
             self.sin = math.sin(self.breaklinesangle*math.pi/180.0)
             self.cos = math.cos(self.breaklinesangle*math.pi/180.0)
             breaklinesextent = (0.5*self.breaklinesdist*math.fabs(self.cos) +
@@ -674,7 +666,7 @@ class bar(_title):
                        outerticklength=None,
                        tickattrs=[],
                        basepathattrs=[],
-                       namedist="0.3 cm",
+                       namedist=0.3*unit.v_cm,
                        nameattrs=[],
                        namedirection=None,
                        namepos=0.5,
@@ -698,11 +690,11 @@ class bar(_title):
         - namehequalize and namevequalize (booleans) perform an equal
           alignment for straight vertical and horizontal axes, respectively
         - futher keyword arguments are passed to _title"""
-        self.innerticklength_str = innerticklength
-        self.outerticklength_str = outerticklength
+        self.innerticklength = innerticklength
+        self.outerticklength = outerticklength
         self.tickattrs = tickattrs
         self.basepathattrs = basepathattrs
-        self.namedist_str = namedist
+        self.namedist = namedist
         self.nameattrs = nameattrs
         self.namedirection = namedirection
         self.namepos = namepos
@@ -732,7 +724,7 @@ class bar(_title):
                 if self.namedirection is not None:
                     nameattrs.append(self.namedirection.trafo(tick.temp_dx, tick.temp_dy))
                 nameboxes.append(self.texrunner.text_pt(x, y, str(name), nameattrs))
-        labeldist = ac.extent + unit.length(self.namedist_str, default_type="v")
+        labeldist = ac.extent + self.namedist
         if len(namepos) > 1:
             equaldirection = 1
             for np in namepos[1:]:
@@ -750,22 +742,20 @@ class bar(_title):
             p = axispos.vbasepath()
             if p is not None:
                 ac.stroke(p, self.defaultbasepathattrs + self.basepathattrs)
-        if self.tickattrs is not None and (self.innerticklength_str is not None or
-                                           self.outerticklength_str is not None):
-            if self.innerticklength_str is not None:
-                innerticklength = unit.length(self.innerticklength_str, default_type="v")
-                innerticklength_pt = unit.topt(innerticklength)
-                if ac.extent < -innerticklength:
-                    ac.extent = -innerticklength
-            elif self.outerticklength_str is not None:
-                innerticklength = innerticklength_pt = 0
-            if self.outerticklength_str is not None:
-                outerticklength = unit.length(self.outerticklength_str, default_type="v")
-                outerticklength_pt = unit.topt(outerticklength)
-                if ac.extent < outerticklength:
-                    ac.extent = outerticklength
-            elif self.innerticklength_str is not None:
-                outerticklength = outerticklength_pt = 0
+        if self.tickattrs is not None and (self.innerticklength is not None or
+                                           self.outerticklength is not None):
+            if self.innerticklength is not None:
+                innerticklength_pt = unit.topt(self.innerticklength)
+                if ac.extent < -self.innerticklength:
+                    ac.extent = -self.innerticklength
+            elif self.outerticklength is not None:
+                innerticklength_pt = 0
+            if self.outerticklength is not None:
+                outerticklength_pt = unit.topt(self.outerticklength)
+                if ac.extent < self.outerticklength:
+                    ac.extent = self.outerticklength
+            elif self.innerticklength is not None:
+                outerticklength_pt = 0
             for pos in axis.relsizes:
                 if pos == axis.relsizes[0]:
                     pos -= axis.firstdist
