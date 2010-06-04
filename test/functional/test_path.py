@@ -5,9 +5,6 @@ from pyx import *
 from pyx.path import *
 
 def bboxrect(cmd):
-#   bbox=cmd.bbox()
-#   return rect("%f t pt" % bbox.llx,            "%f t pt" % bbox.lly,
-#               "%f t pt" % (bbox.urx-bbox.llx), "%f t pt" % (bbox.ury-bbox.lly))
     return cmd.bbox().rect()
 
 
@@ -164,7 +161,7 @@ def testtangent(c):
            rlineto(2,3))+circle(5,5,1)
     c.stroke(p, [style.linewidth.THick])
     for i in range(int(p.range())*2):
-        c.stroke(p.tangent(i/2.0, length="20 t pt"), [color.rgb.blue, deco.earrow.normal])
+        c.stroke(p.tangent(i/2.0, length=20*unit.t_pt), [color.rgb.blue, deco.earrow.normal])
         c.stroke(line(0, 0, 1, 0).transformed(p.trafo(i/2.0)), [color.rgb.green, deco.earrow.normal])
         c.stroke(line(0, 0, 0, 1).transformed(p.trafo(i/2.0)), [color.rgb.red, deco.earrow.normal])
 
@@ -177,7 +174,7 @@ def testtangent(c):
         if radius is not None:
             radius = unit.tocm(radius)
             pos = p.trafo(i/2.0).apply(0,radius*radius/abs(radius))
-            cc.stroke(circle(0,0,unit.t_cm(abs(radius))), [color.grey(0.5), trafo.translate(*pos)])
+            cc.stroke(circle(0, 0,unit.t_cm * abs(radius)), [color.grey(0.5), trafo.translate(*pos)])
     c.insert(cc)
 
 

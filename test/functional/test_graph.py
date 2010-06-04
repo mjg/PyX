@@ -11,17 +11,17 @@ def test_multiaxes_data(c, x, y):
     g = c.insert(graph.graphxy(x, y, height=5, key=graph.key.key(pos="tl"),
                                x=graph.axis.log(title="$W$", manualticks=[graph.axis.tick.tick(math.sqrt(8)*100, label="?"), graph.axis.tick.tick(math.sqrt(8), label="$\sqrt{8}$")]),
                                y=graph.axis.log(title=r"$PPP_1$",
-                                               painter=graph.axis.painter.plain(titledirection=None)),
+                                               painter=graph.axis.painter.regular(titledirection=None)),
                                y2=graph.axis.log(title="$P_2$"),
                                y3=graph.axis.log(title="$PPP_3$",
-                                                painter=graph.axis.painter.plain(titledirection=graph.axis.painter.rotatetext(45), gridattrs=[color.palette.RedGreen]),
+                                                painter=graph.axis.painter.regular(titledirection=graph.axis.painter.rotatetext(45), gridattrs=[color.palette.RedGreen]),
                                                 texter=graph.axis.texter.decimal(equalprecision=1)),
                                y5=graph.axis.log(title="$P_5$")))
     g.plot((graph.data.file("data/testdata", x=1, y="sqrt(sqrt($3))", title="mytitle"),
             graph.data.file("data/testdata", x=1, y2=4),
-            graph.data.file("data/testdata", x=1, y3=5),
+            graph.data.file("data/testdata", x=1, y3=5, title=None),
             graph.data.file("data/testdata", x=1, y5=6)),
-           style=graph.style.symbol(symbolattrs=[deco.stroked.clear, color.palette.RedGreen, graph.style.symbol.changestrokedfilled], symbol=graph.style.symbol.changesquaretwice))
+           styles=[graph.style.pointpos(), graph.style.symbol(symbolattrs=[deco.stroked.clear, color.palette.RedGreen, graph.style.symbol.changestrokedfilled], symbol=graph.style.symbol.changesquaretwice)])
     g.finish()
 
 def test_piaxis_function(c, x, y):
@@ -29,7 +29,7 @@ def test_piaxis_function(c, x, y):
     g = c.insert(graph.graphxy(x, y, height=5, x=xaxis))
     # g = c.insert(graph.graphxy(x, y, height=5, x=xaxis, x2=xaxis)) # TODO
     g.plot([graph.data.function("y=sin(x-i*pi/10)", context={"i": i}) for i in range(20)],
-           style=graph.style.line(lineattrs=[color.palette.Hue]))
+           styles=[graph.style.pointpos(), graph.style.line(lineattrs=[color.palette.Hue])])
     g.finish()
 
 def test_textaxis_errorbars(c, x, y):
@@ -73,7 +73,7 @@ def test_allerrorbars(c, x, y):
 def test_split(c, x, y):
     g = c.insert(graph.graphxy(x, y, height=5, width=5,
                                x=graph.axis.log(),
-                               y=graph.axis.split((graph.axis.lin(min=0, max=0.005, painter=graph.axis.painter.plain()), graph.axis.lin(min=0.01, max=0.015), graph.axis.lin(min=0.02, max=0.025)), title="axis title", splitlist=(None, None), relsizesplitdist=0.005)))
+                               y=graph.axis.split((graph.axis.lin(min=0, max=0.005, painter=graph.axis.painter.regular()), graph.axis.lin(min=0.01, max=0.015), graph.axis.lin(min=0.02, max=0.025)), title="axis title", splitlist=(None, None), relsizesplitdist=0.005)))
     g.plot(graph.data.file("data/testdata", x=1, y=3))
     g.finish()
 
@@ -88,11 +88,12 @@ def test_split2(c, x, y):
 c = canvas.canvas()
 test_multiaxes_data(c, 0, 21)
 test_piaxis_function(c, 0, 14)
-test_textaxis_errorbars(c, 0, 7)
-test_ownmark(c, 0, 0)
-test_allerrorbars(c, -7, 0)
-test_split(c, -7, 7)
-test_split2(c, -7, 14)
+#test_textaxis_errorbars(c, 0, 7)
+#test_ownmark(c, 0, 0)
+#test_allerrorbars(c, -7, 0)
+#test_split(c, -7, 7)
+#test_split2(c, -7, 14)
 
 c.writeEPSfile("test_graph", paperformat="a4")
+c.writePDFfile("test_graph", paperformat="a4")
 

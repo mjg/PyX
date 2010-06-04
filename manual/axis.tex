@@ -1,8 +1,9 @@
 \chapter{Axes\label{axis}}
 
-Axes are a fundamental component of graphs although there might be use
-cases outside of the graph system. Internally axes are constructed out
-of components, which handle different tasks and axis need to fullfill:
+Axes are a fundamental component of graphs although there might be 
+applications outside of the graph system. Internally axes are 
+constructed out of components, which handle different tasks axes 
+need to fulfill:
 
 \begin{definitions}
 \term{axis}
@@ -20,16 +21,16 @@ of components, which handle different tasks and axis need to fullfill:
 \term{texter}
   Creates labels for ticks when they are not set manually.
 \term{painter}
-  Responsible to paint the axis.
+  Responsible for painting the axis.
 \term{rater}
   Calculate ratings, which can be used to select the best suitable
   partitioning.
 \end{definitions}
 
-The names above map directly to modules, which are provided in the
-directory \file{graph/axis}. Sometimes it might be conventient to
-import the axis directory directly rather access them through the
-graph. This would look like:
+The names above map directly to modules which are provided in the
+directory \file{graph/axis}. Sometimes it might be convenient to
+import the axis directory directly rather than to access iit through 
+the graph. This would look like:
 \begin{verbatim}
   from pyx import *
   graph.axis.painter() # and the like
@@ -42,7 +43,7 @@ In most cases different implementations are available through
 different classes, which can be combined in various ways. There are
 various axis examples distributed with \PyX{}, where you can see some
 of the features of the axis with a few lines of code each. Hence we
-can here directly step on to the reference of the available
+can here directly come to the reference of the available
 components.
 
 \section{Axes}
@@ -58,8 +59,8 @@ The position of an axis is defined by an instance of a class providing
 the following methods:
 
 \begin{methoddesc}[axispos]{basepath}{x1=None, x2=None}
-  Returns a path instance for the the base path. \var{x1} and \var{x2}
-  are the axis range, the base path should cover.
+  Returns a path instance for the base path. \var{x1} and \var{x2}
+  define the axis range, the base path should cover.
 \end{methoddesc}
 
 \begin{methoddesc}[axispos]{vbasepath}{v1=None, v2=None}
@@ -67,7 +68,7 @@ the following methods:
 \end{methoddesc}
 
 \begin{methoddesc}[axispos]{gridpath}{x}
-  Returns a path instance for the the grid path at position \var{x}.
+  Returns a path instance for the grid path at position \var{x}.
   Might return \code{None} when no grid path is available.
 \end{methoddesc}
 
@@ -93,20 +94,19 @@ the following methods:
 \end{methoddesc}
 
 Instances of the following classes can be passed to the \var{**axes}
-keyword arguments of a graph. Those instances should be used once
-only.
+keyword arguments of a graph. Those instances should only be used once.
 
 \begin{classdesc}{linear}{min=None, max=None, reverse=0, divisor=None, title=None,
                           parter=parter.autolinear(), manualticks=[],
                           density=1, maxworse=2, rater=rater.linear(),
-                          texter=texter.mixed(), painter=painter.plain()}
-  This class provides a linear axis. \var{min} and \var{max} are the
+                          texter=texter.mixed(), painter=painter.regular()}
+  This class provides a linear axis. \var{min} and \var{max} define the
   axis range. When not set, they are adjusted automatically by the
   data to be plotted in the graph. Note, that some data might want to
   access the range of an axis (\emph{e.g.} the \class{function} class
   when no range was provided there) or you need to specify a range
   when using the axis without plugging it into a graph (\emph{e.g.}
-  when drawing a axis along a path).
+  when drawing an axis along a path).
 
   \var{reverse} can be set to indicate a reversed axis starting with
   bigger values first. Alternatively you can fix the axis range by
@@ -116,7 +116,7 @@ only.
   factor by that. \var{title} is the title of the axis.
 
   \var{parter} is a partitioner instance, which creates suitable ticks
-  for the axis range. Those ticks are merged with manual given ticks
+  for the axis range. Those ticks are merged with ticks manually given 
   by \var{manualticks} before proceeding with rating, painting
   \emph{etc.} Manually placed ticks win against those created by the
   partitioner. For automatic partitioners, which are able to calculate
@@ -126,7 +126,7 @@ only.
   unappropriate or not at all valid in terms of rating label
   distances). But within a range of say 0.5 to 2 (even bigger for
   large graphs) it can help to get less or more ticks than the default
-  would lead to. \var{maxworse} is a the number of trials with more
+  would lead to. \var{maxworse} is the number of trials with more
   and less ticks when a better rating was already found. \var{rater}
   is a rater instance, which rates the ticks and the label distances
   for being best suitable. It also takes into account \var{density}.
@@ -149,7 +149,7 @@ only.
 \begin{classdesc}{logarithmic}{min=None, max=None, reverse=0, divisor=None, title=None,
                                parter=parter.autologarithmic(), manualticks=[],
                                density=1, maxworse=2, rater=rater.logarithmic(),
-                               texter=texter.mixed(), painter=painter.plain()}
+                               texter=texter.mixed(), painter=painter.regular()}
   This class provides a logarithmic axis. All parameters work like
   \class{linear}. Only two parameters have a different default:
   \var{parter} and \var{rater}. Furthermore and most importantly, the
@@ -163,14 +163,14 @@ This class is an abbreviation of \class{logarithmic} described above.
 \begin{classdesc}{linked}{linkedaxis, painter=painter.linked()}
   This class provides an axis, which is linked to another axis
   instance. This means, it shares all its properties with the axis it
-  is linked too except for the painter. Thus a linked axis is painted
+  is linked to except for the painter. Thus a linked axis is painted
   differently.
 
-  A standard use case are the \code{x2} and \code{y2} axes in an
+  A standard application are the \code{x2} and \code{y2} axes in an
   x-y-graph. Linked axes to the \code{x} and \code{y} axes are created
   automatically when not disabled by setting those axes to
   \code{None}. By that, ticks are stroked at both sides of an
-  x-y-graph. However, linked axes can be used for in other cases as
+  x-y-graph. However, linked axes can be used in other cases as
   well. You can link axes within a graph or between different graphs
   as long as the orgininal axis is finished first (it must fix its
   layout first).
@@ -180,14 +180,14 @@ This class is an abbreviation of \class{logarithmic} described above.
                          splitdist=0.1, relsizesplitdist=1,
                          title=None, painter=painter.split()}
   This class provides an axis, splitting the input values to its
-  subaxes depeding on the range of the subaxes. Thus the subaxes
+  subaxes depending on the range of the subaxes. Thus the subaxes
   need to have fixed range, up to the minimum of the first axis and
   the maximum of the last axis. \var{subaxes} actually takes the list
-  of subaxes. \var{splitlist} defines the positions of the spliting
+  of subaxes. \var{splitlist} defines the positions of the splitting
   in graph coordinates. Thus the length of \var{subaxes} must be the
   length of \var{splitlist} plus one. If an entry in \var{splitlist}
   is \code{None}, the axes aside define the split position taking into
-  account the ratio of the axes ranges (meassured by an internal
+  account the ratio of the axes ranges (measured by an internal
   \code{relsize} attribute of each axis).
 
   \var{splitdist} is the space reserved for a splitting in graph
@@ -230,23 +230,23 @@ This class is an abbreviation of \class{logarithmic} described above.
   subaxis. When others has only one entry, it is passed as a value,
   otherwise as a list. The result of the conversion done by the
   subaxis is mapped into the graph coordinate range for this discrete
-  value. When neigher \var{subaxis} nor \var{multisubaxis} is set,
-  others must be a single value in range [0:1]. This value is used for
-  the position at the subaxis without converion.
+  value. When neither \var{subaxis} nor \var{multisubaxis} is set,
+  others must be a single value in the range [0:1]. This value is used 
+  for the position at the subaxis without conversion.
 
   When \var{subaxis} is set, it is used for the conversion of others.
   When \var{multisubaxis} is set, it must be an instance of \var{bar}
-  as well. It is than dublicated for each of the discrete values
+  as well. It is then duplicated for each of the discrete values
   allowed for the axis. By that, you can create nested bar axes with
-  a different discrete values for each discrete value of the axis. It
+  different discrete values for each discrete value of the axis. It
   is not allowed to set both, \var{subaxis} and \var{multisubaxis}.
 
   \var{dist} is used as the spacing between the ranges for each
   distinct value. It is measured in the same units as the subaxis
-  results, thus the default value of \code{0.5} means halve the width
+  results, thus the default value of \code{0.5} means half the width
   between the distinct values as the width for each distinct value.
   \var{firstdist} and \var{lastdist} are used before the first and
-  after the last value. When set to \code{None}, halve of \var{dist}
+  after the last value. When set to \code{None}, half of \var{dist}
   is used.
 
   \var{title} is the title of the split axes and \var{painter} is a
@@ -271,8 +271,8 @@ The following classes are part of the module \module{graph.axis.tick}.
 
 \begin{classdesc}{rational}{x, power=1, floatprecision=10}
   This class implements a rational number with infinite precision. For
-  that it stores two integers, the enumerator \code{enum} and a
-  denomintor \code{denom}. Note that the implementation of rational
+  that it stores two integers, the numerator \code{num} and a
+  denominator \code{denom}. Note that the implementation of rational
   number arithmetics is not at all complete and designed for its
   special use case of axis parititioning in \PyX{} preventing any
   roundoff errors.
@@ -286,13 +286,13 @@ The following classes are part of the module \module{graph.axis.tick}.
     precision. It is also allowed to provide a fraction like
     \samp{1/3}.
   \item A sequence of two integers. Those integers are taken as
-    enumerator and denominator of the rational.
-  \item An instance defining instance variables \code{enum} and
+    numerator and denominator of the rational.
+  \item An instance defining instance variables \code{num} and
   \code{denom} like \class{rational} itself.
   \end{itemize}
 
   \var{power} is an integer to calculate \code{\var{x}**\var{power}}.
-  This is usefull at certain places in partitioners.
+  This is useful at certain places in partitioners.
 \end{classdesc}
 
 \begin{classdesc}{tick}{x, ticklevel=0, labellevel=0, label=None,
@@ -330,10 +330,10 @@ of regular axes.
   Instances of this class creates equally spaced tick lists. The
   distances between the ticks, subticks, subsubticks \emph{etc.}
   starting from a tick at zero are given as first, second, third
-  \emph{etc.} item of the list \var{ticklist}. For a tick position,
+  \emph{etc.} item of the list \var{tickdist}. For a tick position,
   the lowest level wins, \emph{i.e.} for \code{[2, 1]} even numbers
   will have ticks whereas subticks are placed at odd integer. The
-  items of \var{ticklist} might be strings, floats or tuples as
+  items of \var{tickdist} might be strings, floats or tuples as
   described for the \var{pos} parameter of class \class{tick}.
 
   \var{labeldist} works equally for placing labels. When
@@ -381,7 +381,7 @@ This class is an abbreviation of \class{autolinear} described above.
 \end{classdesc}
 
 \begin{classdesc}{preexp}{pres, exp}
-  This is a storrage class defining positions of ticks on a
+  This is a storage class defining positions of ticks on a
   logarithmic scale. It contains a list \var{pres} of positions $p_i$
   and \var{exp}, a multiplicator $m$. Valid tick positions are defined
   by $p_im^n$ for any integer $n$.
@@ -475,8 +475,8 @@ This class is an abbreviation of \class{autologarithmic} described above.
 The following classes are part of the module \module{graph.axis.texter}.
 Instances of the classes can be passed to the texter keyword argument
 of regular axes. Texters are used to define the label text for ticks,
-which request to have a label, but not label text was specified
-actually. A typical case are ticks created by partitioners described
+which request to have a label, but for which no label text has been specified
+so far. A typical case are ticks created by partitioners described
 above.
 
 \begin{classdesc}{decimal}{prefix="", infix="", suffix="", equalprecision=0,
@@ -486,7 +486,7 @@ above.
   Instances of this class create decimal formatted labels.
 
   The strings \var{prefix}, \var{infix}, and \var{suffix} are added to
-  the label at the begin, immediately after the plus or minus, and at
+  the label at the beginning, immediately after the plus or minus, and at
   the end, respectively. \var{decimalsep}, \var{thousandsep}, and
   \var{thousandthpartsep} are strings used to separate integer from
   fractional part and three-digit groups in the integer and fractional
@@ -498,7 +498,7 @@ above.
   contain one string insert operators \samp{\%s} for the period.
 
   \var{labelattrs} is a list of attributes to be added to the label
-  attributes given in the painter. It should be used to setup TeX
+  attributes given in the painter. It should be used to setup \TeX{}
   features like \code{text.mathmode}. Text format options like
   \code{text.size} should instead be set at the painter.
 \end{classdesc}
@@ -570,31 +570,31 @@ above.
 \end{classdesc}
 
 \begin{classdesc}{rational}{prefix="", infix="", suffix="",
-                            enumprefix="", enuminfix="", enumsuffix="",
+                            numprefix="", numinfix="", numsuffix="",
                             denomprefix="", denominfix="", denomsuffix="",
                             plus="", minus="-", minuspos=0, over=r"{{\%s}\textbackslash over{\%s}}",
-                            equaldenom=0, skip1=1, skipenum0=1, skipenum1=1, skipdenom1=1,
+                            equaldenom=0, skip1=1, skipnum0=1, skipnum1=1, skipdenom1=1,
                             labelattrs=[text.mathmode]}
   Instances of this class create labels formated as fractions.
 
   The strings \var{prefix}, \var{infix}, and \var{suffix} are added to
-  the label at the begin, immediately after the plus or minus, and at
-  the end, respectively. The strings \var{prefixenum},
-  \var{infixenum}, and \var{suffixenum} are added to the labels
-  enumerator accordingly whereas \var{prefixdenom}, \var{infixdenom},
+  the label at the beginning, immediately after the plus or minus, and at
+  the end, respectively. The strings \var{prefixnum},
+  \var{infixnum}, and \var{suffixnum} are added to the labels
+  numerator accordingly whereas \var{prefixdenom}, \var{infixdenom},
   and \var{suffixdenom} do the same for the denominator.
 
   The strings \var{plus} and \var{minus} are inserted in front of the
   unsigned value. The position of the sign is defined by
-  \var{minuspos} with values \code{1} (at the enumerator), \code{0}
+  \var{minuspos} with values \code{1} (at the numerator), \code{0}
   (in front of the fraction), and \code{-1} (at the denomerator).
 
   The format string \var{over} should generate the fraction. It
   must contain two string insert operators \samp{\%s}, the first for
-  the enumerator and the second for the denominator. An alternative to
+  the numerator and the second for the denominator. An alternative to
   the default is \samp{\textquotedbl\{\{\%s\}/\{\%s\}\}\textquotedbl}.
 
-  Usually, the enumerator and denominator are canceled, while, when
+  Usually, the numerator and denominator are canceled, while, when
   \var{equaldenom} is set, the least common multiple of all
   denominators is used.
 
@@ -603,16 +603,16 @@ above.
   \code{1} or \code{-1} and at least one of \var{prefix}, \var{infix}
   and \var{suffix} is present.
 
-  The boolean \var{skipenum0} indicates, that only a \code{0} is
-  printed when the enumerator is zero.
+  The boolean \var{skipnum0} indicates, that only a \code{0} is
+  printed when the numerator is zero.
 
-  \var{skipenum1} is like \var{skip1} but for the enumerator.
+  \var{skipnum1} is like \var{skip1} but for the numerator.
 
   \var{skipdenom1} skips the denominator, when it is \code{1} taking
   into account \var{denomprefix}, \var{denominfix}, \var{denomsuffix}
   \var{minuspos} and the sign of the number.
 
-  \var{labelattrs} has the same meaning than for \var{decimal}.
+  \var{labelattrs} has the same meaning as for \var{decimal}.
 \end{classdesc}
 
 \section{Painter}
@@ -633,8 +633,8 @@ passed to the painter keyword argument of regular axes.
   exceeded before an 180 degree rotation is performed.
 \end{classdesc}
 
-The following two class variables are initialized with the most common
-use case:
+The following two class variables are initialized for the most common
+applications:
 
 \begin{memberdesc}{parallel}
   \code{rotatetext(90)}
@@ -656,8 +656,9 @@ tick stroking. They are named \code{ticklength.SHORT},
 \code{ticklength.normal}, \code{ticklength.long}, \dots,
 \code{ticklength.LONG}. \code{ticklength.normal} is initialized with
 a length of \code{0.12} and the reciprocal of the golden mean as
-\code{factor} whereas the others have a modified inital value by
-multiplication or division by multiples of $\sqrt{2}$ appropriately.
+\code{factor} whereas the others have a modified initial value
+obtained by multiplication with or division by appropriate multiples of 
+$\sqrt{2}$.
 
 \begin{classdesc}{regular}{innerticklength=ticklength.normal,
                            outerticklength=None,
@@ -702,7 +703,7 @@ multiplication or division by multiples of $\sqrt{2}$ appropriately.
   horizontal axes, respectively.
 
   \var{titledist} is the distance of the title from the rest of the
-  axis as a visual \PyX{}. \var{titleattrs} is a list of text
+  axis as a visual \PyX{} length. \var{titleattrs} is a list of text
   attributes for the title. It is merged with
   \samp{[text.halign.center, text.vshift.mathaxis]}.
   \var{titledirection} is an instance of \var{rotatetext} to rotate
@@ -714,21 +715,21 @@ multiplication or division by multiples of $\sqrt{2}$ appropriately.
 \end{classdesc}
 
 \begin{classdesc}{linked}{innerticklength=ticklength.short,
-                         outerticklength=None,
-                         tickattrs=[],
-                         gridattrs=None,
-                         basepathattrs=[],
-                         labeldist="0.3 cm",
-                         labelattrs=None,
-                         labeldirection=None,
-                         labelhequalize=0,
-                         labelvequalize=1,
-                         titledist="0.3 cm",
-                         titleattrs=None,
-                         titledirection=rotatetext.parallel,
-                         titlepos=0.5,
-                         texrunner=text.defaulttexrunner}
-  This class is identical to \class{plain} up to the default values of
+                          outerticklength=None,
+                          tickattrs=[],
+                          gridattrs=None,
+                          basepathattrs=[],
+                          labeldist="0.3 cm",
+                          labelattrs=None,
+                          labeldirection=None,
+                          labelhequalize=0,
+                          labelvequalize=1,
+                          titledist="0.3 cm",
+                          titleattrs=None,
+                          titledirection=rotatetext.parallel,
+                          titlepos=0.5,
+                          texrunner=text.defaulttexrunner}
+  This class is identical to \class{regular} up to the default values of
   \var{labelattrs} and \var{titleattrs}. By turning off those
   features, this painter is suitable for linked axes.
 \end{classdesc}
@@ -747,7 +748,7 @@ multiplication or division by multiples of $\sqrt{2}$ appropriately.
   between axes break markers in visual \PyX{} lengths.
   \var{breaklinesangle} is the angle of the axis break marker with
   respect to the base path of the axis. All other parameters have the
-  same meaning as in \class{plain}.
+  same meaning as in \class{regular}.
 \end{classdesc}
 
 \begin{classdesc}{linkedsplit}{breaklinesdist="0.05 cm",
@@ -781,14 +782,14 @@ multiplication or division by multiples of $\sqrt{2}$ appropriately.
   Instances of this class are suitable painters for bar axes.
 
   \var{innerticklength} and \var{outerticklength} are visual \PyX{}
-  length to mark the different bar regions along the axis inside and
+  lengths to mark the different bar regions along the axis inside and
   outside of the graph. \code{None} turns off the ticks inside and
   outside the graph, respectively. \var{tickattrs} are stroke
-  attributes for the ticks or \code{None} to turns all ticks off.
+  attributes for the ticks or \code{None} to turn all ticks off.
 
   The parameters with prefix \var{name} are identical to their
-  \var{label} counterparts in \class{plain}. All other parameters have
-  the same meaning as in \class{plain}.
+  \var{label} counterparts in \class{regular}. All other parameters have
+  the same meaning as in \class{regular}.
 \end{classdesc}
 
 \begin{classdesc}{linkedbar}{innerticklength=None,
@@ -818,16 +819,16 @@ multiplication or division by multiples of $\sqrt{2}$ appropriately.
 
 The rating of axes is implemented in \module{graph.axis.rater}. When
 an axis partitioning scheme returns several partitioning
-possibilities, the partitions needs to be rated by a positive number.
-The lowest rated axis partitioning is considered best.
+possibilities, the partitions need to be rated by a positive number.
+The axis partitioning rated lowest is considered best.
 
 The rating consists of two steps. The first takes into account only
 the number of ticks, subticks, labels and so on in comparison to
 optimal numbers. Additionally, the extension of the axis range by
 ticks and labels is taken into account. This rating leads to a
 preselection of possible partitions. In the second step, after the
-layout of prefered partitionings is calculated, the distance of the
-labels in a partition is taken into account as well at a smaller
+layout of preferred partitionings has been calculated, the distance of 
+the labels in a partition is taken into account as well at a smaller
 weight factor by default. Thereby partitions with overlapping labels
 will be rejected completely. Exceptionally sparse or dense labels will
 receive a bad rating as well.
@@ -839,7 +840,7 @@ receive a bad rating as well.
   to the result.
 
   The rater calculates
-  \code{\var{widht}*((x-\var{opt})/(other-\var{opt}))**3} to rate the
+  \code{\var{width}*((x-\var{opt})/(other-\var{opt}))**3} to rate the
   value \code{x}, where \code{other} is \var{left}
   (\code{x}\textless\var{opt}) or \var{right}
   (\code{x}\textgreater\var{opt}).

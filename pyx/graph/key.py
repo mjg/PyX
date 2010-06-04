@@ -30,50 +30,63 @@ class key:
 
     defaulttextattrs = [text.vshift.mathaxis]
 
-    def __init__(self, dist="0.2 cm", pos="tr", hinside=1, vinside=1, hdist="0.6 cm", vdist="0.4 cm",
-                 symbolwidth="0.5 cm", symbolheight="0.25 cm", symbolspace="0.2 cm",
+    def __init__(self, dist=0.2*unit.v_cm, pos="tr", hpos=None, vpos=None,
+                 hinside=1, vinside=1, hdist=0.6*unit.v_cm, vdist=0.4*unit.v_cm,
+                 symbolwidth=0.5*unit.v_cm, symbolheight=0.25*unit.v_cm, symbolspace=0.2*unit.v_cm,
                  textattrs=[]):
-        self.dist_str = dist
-        self.pos = pos
+        self.dist = dist
         self.hinside = hinside
         self.vinside = vinside
-        self.hdist_str = hdist
-        self.vdist_str = vdist
-        self.symbolwidth_str = symbolwidth
-        self.symbolheight_str = symbolheight
-        self.symbolspace_str = symbolspace
+        self.hdist = hdist
+        self.vdist = vdist
+        self.symbolwidth = symbolwidth
+        self.symbolheight = symbolheight
+        self.symbolspace = symbolspace
         self.textattrs = textattrs
-        if self.pos in ("tr", "rt"):
-            self.right = 1
-            self.top = 1
-        elif self.pos in ("br", "rb"):
-            self.right = 1
-            self.top = 0
-        elif self.pos in ("tl", "lt"):
-            self.right = 0
-            self.top = 1
-        elif self.pos in ("bl", "lb"):
-            self.right = 0
-            self.top = 0
+        if pos is not None:
+            if vpos is not None or hpos is not None:
+                raise ValueError("either specify pos or a combination of hpos, vpos")
+            for poslist, hpos, vpos in [(["tr", "rt"], 1, 1),
+                                        (["tc", "ct"], 0.5, 1),
+                                        (["tl", "lt"], 0, 1),
+                                        (["mr", "rm"], 1, 0.5),
+                                        (["mc", "cm"], 0.5, 0.5),
+                                        (["ml", "lm"], 0, 0.5),
+                                        (["br", "rb"], 1, 0),
+                                        (["bc", "cb"], 0.5, 0),
+                                        (["bl", "lb"], 0, 0)]:
+                if pos in poslist:
+                    self.hpos = hpos
+                    self.vpos = vpos
+                    break
+            else:
+                raise ValueError("invalid pos")
         else:
-            raise RuntimeError("invalid pos attribute")
+            if vpos is None or hpos is None:
+                raise ValueError("either specify pos or a combination of hpos, vpos")
+            self.hpos = hpos
+            self.vpos = vpos
 
     def paint(self, plotdata):
         "creates the layout of the key"
+        plotdata = [plotdat for plotdat in plotdata if plotdat.title is not None]
         c = canvas.canvas()
-        self.dist_pt = unit.topt(unit.length(self.dist_str, default_type="v"))
-        self.hdist_pt = unit.topt(unit.length(self.hdist_str, default_type="v"))
-        self.vdist_pt = unit.topt(unit.length(self.vdist_str, default_type="v"))
-        self.symbolwidth_pt = unit.topt(unit.length(self.symbolwidth_str, default_type="v"))
-        self.symbolheight_pt = unit.topt(unit.length(self.symbolheight_str, default_type="v"))
-        self.symbolspace_pt = unit.topt(unit.length(self.symbolspace_str, default_type="v"))
-        titles = []
+        self.dist_pt = unit.topt(self.dist)
+        self.hdist_pt = unit.topt(self.hdist)
+        self.vdist_pt = unit.topt(self.vdist)
+        self.symbolwidth_pt = unit.topt(self.symbolwidth)
+        self.symbolheight_pt = unit.topt(self.symbolheight)
+        self.symbolspace_pt = unit.topt(self.symbolspace)
         for plotdat in plotdata:
-            titles.append(c.texrunner.text_pt(0, 0, plotdat.title, self.defaulttextattrs + self.textattrs))
-        box.tile_pt(titles, self.dist_pt, 0, -1)
-        box.linealignequal_pt(titles, self.symbolwidth_pt + self.symbolspace_pt, 1, 0)
-        for plotdat, title in zip(plotdata, titles):
-            plotdat.style.key_pt(c, 0, -0.5 * self.symbolheight_pt + title.center[1],
-                                   self.symbolwidth_pt, self.symbolheight_pt, plotdat)
-            c.insert(title)
+            plotdat.temp_titlebox = c.texrunner.text_pt(0, 0, plotdat.title, self.defaulttextattrs + self.textattrs)
+        box.tile_pt([plotdat.temp_titlebox for plotdat in plotdata], self.dist_pt, 0, -1)
+        box.linealignequal_pt([plotdat.temp_titlebox for plotdat in plotdata], self.symbolwidth_pt + self.symbolspace_pt, 1, 0)
+        for plotdat in plotdata:
+            # TODO: loop over styles
+            plotdat.styles[-1].key_pt(c, 0, -0.5 * self.symbolheight_pt + plotdat.temp_titlebox.center[1],
+                                 self.symbolwidth_pt, self.symbolheight_pt, plotdat.styledata)
+            c.insert(plotdat.temp_titlebox)
+
+        # for plotdat in plotdata:
+        #     del plotdat.temp_titlebox
         return c

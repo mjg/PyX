@@ -10,8 +10,10 @@ of these primitives.
 """
 
 from distutils.core import setup, Extension
+from distutils.command.build_py import build_py
+from distutils.command.install_data import install_data
 import ConfigParser
-import sys
+import sys, os
 import pyx
 
 #
@@ -38,17 +40,63 @@ if cfg.has_section("PyX"):
 # data files
 #
 
-data_files = [('share/pyx', ['pyx/lfs/10pt.lfs',
-                             'pyx/lfs/11pt.lfs',
-                             'pyx/lfs/12pt.lfs',
-                             'pyx/lfs/10ptex.lfs',
-                             'pyx/lfs/11ptex.lfs',
-                             'pyx/lfs/12ptex.lfs',
-                             'pyx/lfs/foils17pt.lfs',
-                             'pyx/lfs/foils20pt.lfs',
-                             'pyx/lfs/foils25pt.lfs',
-                             'pyx/lfs/foils30pt.lfs',
-                             'contrib/pyx.def'])]
+data_files = [# share/pyx is taken relative to "setup.py install --home=..."
+              ("share/pyx", ["pyx/lfs/10pt.lfs",
+                             "pyx/lfs/11pt.lfs",
+                             "pyx/lfs/12pt.lfs",
+                             "pyx/lfs/10ptex.lfs",
+                             "pyx/lfs/11ptex.lfs",
+                             "pyx/lfs/12ptex.lfs",
+                             "pyx/lfs/foils17pt.lfs",
+                             "pyx/lfs/foils20pt.lfs",
+                             "pyx/lfs/foils25pt.lfs",
+                             "pyx/lfs/foils30pt.lfs",
+                             "contrib/pyx.def"]),
+              # /etc is taken relative to "setup.py install --root=..."
+              ("/etc", ["pyxrc"])]
+
+#
+# pyx_build_py
+#
+# pyx/siteconfig.py is not copied from the source directory,
+# but generated from the directory data obtained from install_data
+#
+
+class pyx_build_py(build_py):
+
+    def run(self):
+        # siteconfig depends on install_data:
+        self.run_command('install_data')
+        build_py.run(self)
+
+    def build_module(self, module, module_file, package):
+        if package == "pyx" and module == "siteconfig":
+            # generate path information as the original build_module does it
+            outfile = self.get_module_outfile(self.build_lib, [package], module)
+            dir = os.path.dirname(outfile)
+            self.mkpath(dir)
+
+            # we do not copy pyx/siteconfig.py, but generate it
+            # using the pyx_install_data instance
+            install_data = self.distribution.command_obj["install_data"]
+            f = open(outfile, "w")
+            f.write("lfsdir = %r\n" % install_data.pyx_lfsdir)
+            f.write("sharedir = %r\n" % install_data.pyx_sharedir)
+            f.write("pyxrc = %r\n" % install_data.pyx_pyxrc)
+            f.close()
+        else:
+            return build_py.build_module(self, module, module_file, package)
+
+#
+# install_data
+#
+
+class pyx_install_data(install_data):
+
+    def run(self):
+        install_data.run(self)
+        self.pyx_lfsdir = self.pyx_sharedir = os.path.join(self.install_dir, "share", "pyx")
+        self.pyx_pyxrc = os.path.join(self.root or "/", "etc", "pyxrc")
 
 #
 # additional package metadata (only available in Python 2.3 and above)
@@ -84,7 +132,9 @@ setup(name="PyX",
       description=doclines[0],
       long_description="\n".join(doclines[2:]),
       license="GPL",
-      packages=['pyx', 'pyx/graph', 'pyx/graph/axis', 'pyx/t1strip', 'pyx/pykpathsea'],
+      packages=["pyx", "pyx/graph", "pyx/graph/axis", "pyx/t1strip", "pyx/pykpathsea"],
       ext_modules=ext_modules,
       data_files=data_files,
+      cmdclass = {"build_py": pyx_build_py,
+                  "install_data": pyx_install_data},
       **addargs)

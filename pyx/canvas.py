@@ -30,18 +30,32 @@ with their attributes.
 """
 
 import sys, cStringIO, time
-import attr, base,  deco, unit, prolog, style, trafo, version
+import attr, base,  bbox, deco, unit, prolog, style, trafo, version
+
+# temporary for pdf fonts:
+import zlib
+from t1strip import fullfont
+import pykpathsea
+
+import pdfwriter
+
+try:
+    enumerate([])
+except NameError:
+    # fallback implementation for Python 2.2. and below
+    def enumerate(list):
+        return zip(xrange(len(list)), list)
 
 # known paperformats as tuple (width, height)
 
-_paperformats = { "A4"      : ("210 t mm",  "297 t mm"),
-                  "A3"      : ("297 t mm",  "420 t mm"),
-                  "A2"      : ("420 t mm",  "594 t mm"),
-                  "A1"      : ("594 t mm",  "840 t mm"),
-                  "A0"      : ("840 t mm", "1188 t mm"),
-                  "A0B"     : ("910 t mm", "1370 t mm"),
-                  "LETTER"  : ("8.5 t inch", "11 t inch"),
-                  "LEGAL"   : ("8.5 t inch", "14 t inch")}
+_paperformats = { "A4"      : (210 * unit.t_mm,   297  * unit.t_mm),
+                  "A3"      : (297 * unit.t_mm,   420  * unit.t_mm),
+                  "A2"      : (420 * unit.t_mm,   594  * unit.t_mm),
+                  "A1"      : (594 * unit.t_mm,   840  * unit.t_mm),
+                  "A0"      : (840 * unit.t_mm,   1188 * unit.t_mm),
+                  "A0b"     : (910 * unit.t_mm,   1370 * unit.t_mm),
+                  "Letter"  : (8.5 * unit.t_inch, 11   * unit.t_inch),
+                  "Legal"   : (8.5 * unit.t_inch, 14   * unit.t_inch)}
 
 #
 # clipping class
@@ -165,7 +179,7 @@ class _canvas(base.PSCmd):
     def insert(self, PSOp, attrs=[]):
         """insert PSOp in the canvas.
 
-        If args are given, then insert a canvas containing PSOp applying args.
+        If attrss are given, a canvas containing the PSOp is inserted applying attrs.
 
         returns the PSOp
 
@@ -298,16 +312,16 @@ class pattern(_canvas, attr.exclusiveattr, style.fillstyle):
         if self.xstep is None:
            xstep = unit.topt(realpatternbbox.width())
         else:
-           xstep = unit.topt(unit.length(self.xstep))
+           xstep = unit.topt(self.xstep)
         if self.ystep is None:
             ystep = unit.topt(realpatternbbox.height())
         else:
-           ystep = unit.topt(unit.length(self.ystep))
+           ystep = unit.topt(self.ystep)
         if not xstep:
             raise ValueError("xstep in pattern cannot be zero")
         if not ystep:
             raise ValueError("ystep in pattern cannot be zero")
-        patternbbox = self.patternbbox or realpatternbbox.enlarged("5 pt")
+        patternbbox = self.patternbbox or realpatternbbox.enlarged(5*unit.pt)
 
         patternprefix = "\n".join(("<<",
                                    "/PatternType 1",
@@ -330,6 +344,52 @@ class pattern(_canvas, attr.exclusiveattr, style.fillstyle):
 
 pattern.clear = attr.clearclass(pattern)
 
+# helper function
+
+def calctrafo(abbox, paperformat, margin, rotated, fittosize):
+    """ calculate a trafo which rotates and fits a canvas with
+    bounding box abbox on the given paperformat with a margin on all
+    sides"""
+    if not isinstance(margin, unit.length):
+        margin = unit.length(margin)
+    atrafo = None     # global transformation of canvas
+
+    if rotated:
+        atrafo = trafo.rotate(90, *abbox.center())
+
+    if paperformat:
+        # center (optionally rotated) output on page
+        try:
+            paperwidth, paperheight = _paperformats[paperformat.capitalize()]
+        except KeyError:
+            raise KeyError, "unknown paperformat '%s'" % paperformat
+
+        paperwidth -= 2*margin
+        paperheight -= 2*margin
+
+        if not atrafo: atrafo = trafo.trafo()
+
+        atrafo = atrafo.translated(margin + 0.5*(paperwidth  - abbox.width())  - abbox.left(),
+                                   margin + 0.5*(paperheight - abbox.height()) - abbox.bottom())
+
+        if fittosize:
+            # scale output to pagesize - margins
+            if 2*margin > min(paperwidth, paperheight):
+                raise RuntimeError("Margins too broad for selected paperformat. Aborting.")
+
+            if rotated:
+                sfactor = min(unit.topt(paperheight)/unit.topt(abbox.width()),
+                              unit.topt(paperwidth)/unit.topt(abbox.height()))
+            else:
+                sfactor = min(unit.topt(paperwidth)/unit.topt(abbox.width()),
+                              unit.topt(paperheight)/unit.topt(abbox.height()))
+
+            atrafo = atrafo.scaled(sfactor, sfactor, margin + 0.5*paperwidth, margin + 0.5*paperheight)
+    elif fittosize:
+        raise ValueError("must specify paper size for fittosize")
+
+    return atrafo
+
 #
 # The main canvas class
 #
@@ -338,8 +398,8 @@ class canvas(_canvas):
 
     """a canvas is a collection of PSCmds together with PSAttrs"""
 
-    def writeEPSfile(self, filename, paperformat=None, rotated=0, fittosize=0, margin="1 t cm",
-                    bbox=None, bboxenlarge="1 t pt"):
+    def writeEPSfile(self, filename, paperformat=None, rotated=0, fittosize=0, margin=1 * unit.t_cm,
+                    bbox=None, bboxenlarge=1 * unit.t_pt):
         """write canvas to EPS file
 
         If paperformat is set to a known paperformat, the output will be centered on
@@ -365,52 +425,12 @@ class canvas(_canvas):
             raise IOError("cannot open output file")
 
         abbox = bbox is not None and bbox or self.bbox()
-        abbox = abbox.enlarged(bboxenlarge)
-        ctrafo = None     # global transformation of canvas
-
-        if rotated:
-            ctrafo = trafo.rotate_pt(90,
-                                     0.5*(abbox.llx+abbox.urx),
-                                     0.5*(abbox.lly+abbox.ury))
-
-        if paperformat:
-            # center (optionally rotated) output on page
-            try:
-                width, height = _paperformats[paperformat.upper()]
-            except KeyError:
-                raise KeyError, "unknown paperformat '%s'" % paperformat
-            width = unit.topt(width)
-            height = unit.topt(height)
-
-            if not ctrafo: ctrafo=trafo.trafo()
-
-            ctrafo = ctrafo.translated_pt(0.5*(width -(abbox.urx-abbox.llx))-
-                                       abbox.llx,
-                                       0.5*(height-(abbox.ury-abbox.lly))-
-                                       abbox.lly)
-
-            if fittosize:
-                # scale output to pagesize - margins
-                margin = unit.topt(margin)
-                if 2*margin > min(width, height):
-                    raise RuntimeError("Margins too broad for selected paperformat. Aborting.")
-
-                if rotated:
-                    sfactor = min((height-2*margin)/(abbox.urx-abbox.llx),
-                                  (width-2*margin)/(abbox.ury-abbox.lly))
-                else:
-                    sfactor = min((width-2*margin)/(abbox.urx-abbox.llx),
-                                  (height-2*margin)/(abbox.ury-abbox.lly))
-
-                ctrafo = ctrafo.scaled_pt(sfactor, sfactor, 0.5*width, 0.5*height)
-
-
-        elif fittosize:
-            raise ValueError("must specify paper size for fittosize")
+        abbox.enlarge(bboxenlarge)
+        ctrafo = calctrafo(abbox, paperformat, margin, rotated, fittosize)
 
         # if there has been a global transformation, adjust the bounding box
         # accordingly
-        if ctrafo: abbox = abbox.transformed(ctrafo)
+        if ctrafo: abbox.transform(ctrafo)
 
         file.write("%!PS-Adobe-3.0 EPSF 3.0\n")
         abbox.outputPS(file)
@@ -435,7 +455,7 @@ class canvas(_canvas):
 
         file.write("%%EndProlog\n")
 
-        # again, if there has occured global transformation, apply it now
+        # apply a possible global transformation
         if ctrafo: ctrafo.outputPS(file)
 
         file.write("%f setlinewidth\n" % unit.topt(style.linewidth.normal))
@@ -447,7 +467,8 @@ class canvas(_canvas):
         file.write("%%Trailer\n")
         file.write("%%EOF\n")
 
-    def writePDFfile(self, filename, bbox=None, bboxenlarge="1 t pt"):
+    def writePDFfile(self, filename, paperformat=None, rotated=0, fittosize=0, margin=1 * unit.t_cm,
+                    bbox=None, bboxenlarge=1 * unit.t_pt):
         sys.stderr.write("*** PyX Warning: writePDFfile is experimental and supports only a subset of PyX's features\n")
 
         if filename[-4:]!=".pdf":
@@ -459,63 +480,182 @@ class canvas(_canvas):
             raise IOError("cannot open output file")
 
         abbox = bbox is not None and bbox or self.bbox()
-        abbox = abbox.enlarged(bboxenlarge)
+        abbox.enlarge(bboxenlarge)
+
+        ctrafo = calctrafo(abbox, paperformat, margin, rotated, fittosize)
+
+        # if there has been a global transformation, adjust the bounding box
+        # accordingly
+        if ctrafo: abbox.transform(ctrafo)
+
+        mergedprolog = []
+
+        for pritem in self.prolog():
+            for mpritem in mergedprolog:
+                if mpritem.merge(pritem) is None: break
+            else:
+                mergedprolog.append(pritem)
 
         file.write("%%PDF-1.4\n%%%s%s%s%s\n" % (chr(195), chr(182), chr(195), chr(169)))
         reflist = [file.tell()]
         file.write("1 0 obj\n"
                    "<<\n"
                    "/Type /Catalog\n"
-                   "/Outlines 2 0 R\n"
-                   "/Pages 3 0 R\n"
+                   "/Pages 2 0 R\n"
                    ">>\n"
                    "endobj\n")
         reflist.append(file.tell())
         file.write("2 0 obj\n"
                    "<<\n"
-                   "/Type Outlines\n"
-                   "/Count 0\n"
+                   "/Type /Pages\n"
+                   "/Kids [3 0 R]\n"
+                   "/Count 1\n"
                    ">>\n"
                    "endobj\n")
         reflist.append(file.tell())
         file.write("3 0 obj\n"
                    "<<\n"
-                   "/Type /Pages\n"
-                   "/Kids [4 0 R]\n"
-                   "/Count 1\n"
+                   "/Type /Page\n"
+                   "/Parent 2 0 R\n"
+                   "/MediaBox ")
+        abbox.outputPDF(file)
+        file.write("/Contents 4 0 R\n"
+                   "/Resources <<\n")
+        fontstartref = 5
+
+        fontnr = 0
+        if len([pritem for pritem in mergedprolog if isinstance(pritem, prolog.fontdefinition)]):
+            file.write("/Font\n"
+                       "<<\n")
+            for pritem in mergedprolog:
+                if isinstance(pritem, prolog.fontdefinition):
+                    fontnr += 1
+                    file.write("/%s %d 0 R\n" % (pritem.font.getpsname(), fontnr+fontstartref))
+                    fontnr += 3 # further objects due to a font
+            file.write(">>\n")
+
+        file.write(">>\n"
                    ">>\n"
                    "endobj\n")
         reflist.append(file.tell())
         file.write("4 0 obj\n"
-                   "<<\n"
-                   "/Type /Page\n"
-                   "/Parent 3 0 R\n")
-        abbox.outputPDF(file)
-        file.write("/Contents 5 0 R\n"
-                   "/Resources << /ProcSet 7 0 R >>\n"
-                   ">>\n"
-                   "endobj\n")
-        reflist.append(file.tell())
-        file.write("5 0 obj\n"
-                   "<< /Length 6 0 R >>\n"
+                   "<< /Length 5 0 R >>\n"
                    "stream\n")
         streamstartpos = file.tell()
+
+        # apply a possible global transformation
+        if ctrafo: ctrafo.outputPDF(file)
         style.linewidth.normal.outputPDF(file)
+
         self.outputPDF(file)
         streamendpos = file.tell()
         file.write("endstream\n"
                    "endobj\n")
         reflist.append(file.tell())
-        file.write("6 0 obj\n"
+        file.write("5 0 obj\n"
                    "%s\n"
                    "endobj\n" % (streamendpos - streamstartpos))
-        reflist.append(file.tell())
-        file.write("7 0 obj\n"
-                   "[/PDF]\n"
-                   "endobj\n")
+
+        fontnr = 0
+        for pritem in mergedprolog:
+            if isinstance(pritem, prolog.fontdefinition):
+                fontnr += 1
+                reflist.append(file.tell())
+                file.write("%d 0 obj\n"
+                           "<<\n"
+                           "/Type /Font\n"
+                           "/Subtype /Type1\n"
+                           "/Name /%s\n"
+                           "/BaseFont /%s\n"
+                           "/FirstChar 0\n"
+                           "/LastChar 255\n"
+                           "/Widths %d 0 R\n"
+                           "/FontDescriptor %d 0 R\n"
+                           "/Encoding /StandardEncoding\n" # FIXME
+                           ">>\n"
+                           "endobj\n" % (fontnr+fontstartref, pritem.font.getpsname(), pritem.font.getbasepsname(),
+                                         fontnr+fontstartref+1, fontnr+fontstartref+2))
+                fontnr += 1
+                reflist.append(file.tell())
+                file.write("%d 0 obj\n"
+                           "[\n" % (fontnr+fontstartref))
+                for i in range(256):
+                    try:
+                        width = pritem.font.getwidth_pt(i)*1000/pritem.font.getsize_pt()
+                    except:
+                        width = 0
+                    file.write("%f\n" % width)
+                file.write("]\n"
+                           "endobj\n")
+                if pritem.filename:
+                    fontnr += 1
+                    reflist.append(file.tell())
+                    file.write("%d 0 obj\n"
+                               "<<\n"
+                               "/Type /FontDescriptor\n"
+                               "/FontName /%s\n"
+                               "/Flags 4\n" # FIXME
+                               "/FontBBox [-10 -10 1000 1000]\n" # FIXME
+                               "/ItalicAngle 0\n" # FIXME
+                               "/Ascent 20\n" # FIXME
+                               "/Descent -5\n" # FIXME
+                               "/CapHeight 15\n" # FIXME
+                               "/StemV 3\n" # FIXME
+                               "/FontFile %d 0 R\n" # FIXME
+                               # "/CharSet \n" # fill in when stripping
+                               ">>\n"
+                               "endobj\n" % (fontnr+fontstartref, pritem.font.getbasepsname(),
+                                             fontnr+fontstartref+1))
+
+                    fontnr += 1
+                    reflist.append(file.tell())
+
+                    fontdata = open(pykpathsea.find_file(pritem.filename, pykpathsea.kpse_type1_format)).read()
+                    if fontdata[0:2] != fullfont._PFB_ASCII:
+                        raise RuntimeError("PFB_ASCII mark expected")
+                    length1 = fullfont.pfblength(fontdata[2:6])
+                    if fontdata[6+length1:8+length1] != fullfont._PFB_BIN:
+                        raise RuntimeError("PFB_BIN mark expected")
+                    length2 = fullfont.pfblength(fontdata[8+length1:12+length1])
+                    if fontdata[12+length1+length2:14+length1+length2] != fullfont._PFB_ASCII:
+                        raise RuntimeError("PFB_ASCII mark expected")
+                    length3 = fullfont.pfblength(fontdata[14+length1+length2:18+length1+length2])
+                    if fontdata[18+length1+length2+length3:20+length1+length2+length3] != fullfont._PFB_DONE:
+                        raise RuntimeError("PFB_DONE mark expected")
+                    if len(fontdata) != 20 + length1 + length2 + length3:
+                        raise RuntimeError("end of pfb file expected")
+
+                    # we might be allowed to skip the third part ...
+                    if fontdata[18+length1+length2:18+length1+length2+length3].replace("\n", "").replace("\r", "").replace("\t", "").replace(" ", "") == "0"*512 + "cleartomark":
+                        length3 = 0
+
+                    uncompresseddata = fontdata[6:6+length1] + fontdata[12+length1:12+length1+length2] + fontdata[18+length1+length2:18+length1+length2+length3]
+                    compresseddata = zlib.compress(uncompresseddata)
+
+                    file.write("%d 0 obj\n"
+                               "<<\n"
+                               "/Length %d\n"
+                               "/Length1 %d\n"
+                               "/Length2 %d\n"
+                               "/Length3 %d\n"
+                               "/Filter /FlateDecode\n"
+                               ">>\n"
+                               "stream\n" % (fontnr+fontstartref, len(compresseddata),
+                                                                  length1,
+                                                                  length2,
+                                                                  length3))
+                    #file.write(fontdata[6:6+length1])
+                    #file.write(fontdata[12+length1:12+length1+length2])
+                    #file.write(fontdata[18+length1+length2:18+length1+length2+length3])
+                    file.write(compresseddata)
+                    file.write("endstream\n"
+                               "endobj\n")
+                else:
+                    fontnr += 2
+
         xrefpos = file.tell()
         file.write("xref\n"
-                   "0 8\n")
+                   "0 %d\n" % (len(reflist)+1))
         file.write("0000000000 65535 f \n")
         for ref in reflist:
             file.write("%010i 00000 n \n" % ref)
@@ -528,6 +668,37 @@ class canvas(_canvas):
                    "%i\n"
                    "%%%%EOF\n" % xrefpos)
 
+    def writePDFfile_new(self, filename, paperformat=None, rotated=0, fittosize=0, margin=1 * unit.t_cm,
+                    bbox=None, bboxenlarge=1 * unit.t_pt):
+        sys.stderr.write("*** PyX Warning: writePDFfile is experimental and supports only a subset of PyX's features\n")
+
+        if filename[-4:]!=".pdf":
+            filename = filename + ".pdf"
+
+        try:
+            writer = pdfwriter.pdfwriter(filename)
+        except IOError:
+            raise IOError("cannot open output file")
+
+        abbox = bbox is not None and bbox or self.bbox()
+        abbox.enlarge(bboxenlarge)
+
+        ctrafo = calctrafo(abbox, paperformat, margin, rotated, fittosize)
+
+        # if there has been a global transformation, adjust the bounding box
+        # accordingly
+        if ctrafo: abbox.transform(ctrafo)
+
+        mergedprolog = []
+
+        for pritem in self.prolog():
+            for mpritem in mergedprolog:
+                if mpritem.merge(pritem) is None: break
+            else:
+                mergedprolog.append(pritem)
+        writer.page(abbox, self, mergedprolog, ctrafo)
+        writer.close()
+
     def writetofile(self, filename, *args, **kwargs):
         if filename[-4:] == ".eps":
             self.writeEPSfile(filename, *args, **kwargs)
@@ -536,3 +707,134 @@ class canvas(_canvas):
         else:
             sys.stderr.write("*** PyX Warning: deprecated usage of writetofile -- writetofile needs a filename extension or use an explicit call to writeEPSfile or the like\n")
             self.writeEPSfile(filename, *args, **kwargs)
+
+class page(canvas):
+
+    def __init__(self, attrs=[], texrunner=None, pagename=None, paperformat="a4", rotated=0, fittosize=0,
+                 margin=1 * unit.t_cm, bboxenlarge=1 * unit.t_pt):
+        canvas.__init__(self, attrs, texrunner)
+        self.pagename = pagename
+        self.paperformat = paperformat.capitalize()
+        self.rotated = rotated
+        self.fittosize = fittosize
+        self.margin = margin
+        self.bboxenlarge = bboxenlarge
+
+    def bbox(self):
+        # the bounding box of a page is fixed by its format and an optional rotation
+        pbbox = bbox.bbox(0, 0, *_paperformats[self.paperformat])
+        pbbox.enlarge(self.bboxenlarge)
+        if self.rotated:
+            pbbox.transform(trafo.rotate(90, *pbbox.center()))
+        return pbbox
+
+    def outputPS(self, file):
+        file.write("%%%%PageMedia: %s\n" % self.paperformat)
+        file.write("%%%%PageOrientation: %s\n" % (self.rotated and "Landscape" or "Portrait"))
+        # file.write("%%%%PageBoundingBox: %d %d %d %d\n" % (math.floor(pbbox.llx_pt), math.floor(pbbox.lly_pt),
+        #                                                    math.ceil(pbbox.urx_pt), math.ceil(pbbox.ury_pt)))
+
+        # page setup section
+        file.write("%%BeginPageSetup\n")
+        file.write("/pgsave save def\n")
+        # for scaling, we need the real bounding box of the page contents
+        pbbox = canvas.bbox(self)
+        pbbox.enlarge(self.bboxenlarge)
+        ptrafo = calctrafo(pbbox, self.paperformat, self.margin, self.rotated, self.fittosize)
+        if ptrafo:
+            ptrafo.outputPS(file)
+        file.write("%f setlinewidth\n" % unit.topt(style.linewidth.normal))
+        file.write("%%EndPageSetup\n")
+
+        # here comes the actual content
+        canvas.outputPS(self, file)
+        file.write("pgsave restore\n")
+        file.write("showpage\n")
+        # file.write("%%PageTrailer\n")
+
+
+class document:
+
+    """holds a collection of page instances which are output as pages of a document"""
+
+    def __init__(self, pages=[]):
+        self.pages = pages
+
+    def append(self, page):
+        self.pages.append(page)
+
+    def writePSfile(self, filename):
+        """write pages to PS file """
+
+        if filename[-3:]!=".ps":
+            filename = filename + ".ps"
+
+        try:
+            file = open(filename, "w")
+        except IOError:
+            raise IOError("cannot open output file")
+
+        docbbox = None
+        for apage in self.pages:
+            pbbox = apage.bbox()
+            if docbbox is None:
+                docbbox = pbbox
+            else:
+                docbbox += pbbox
+
+        # document header
+        file.write("%!PS-Adobe-3.0\n")
+        docbbox.outputPS(file)
+        file.write("%%%%Creator: PyX %s\n" % version.version)
+        file.write("%%%%Title: %s\n" % filename)
+        file.write("%%%%CreationDate: %s\n" %
+                   time.asctime(time.localtime(time.time())))
+        # required paper formats
+        paperformats = {}
+        for apage in self.pages:
+            if isinstance(apage, page):
+                paperformats[apage.paperformat] = _paperformats[apage.paperformat]
+        first = 1
+        for paperformat, size in paperformats.items():
+            if first:
+                file.write("%%DocumentMedia: ")
+                first = 0
+            else:
+                file.write("%%+ ")
+            file.write("%s %d %d 75 white ()\n" % (paperformat, unit.topt(size[0]), unit.topt(size[1])))
+
+        file.write("%%%%Pages: %d\n" % len(self.pages))
+        file.write("%%PageOrder: Ascend\n")
+        file.write("%%EndComments\n")
+
+        # document default section
+        #file.write("%%BeginDefaults\n")
+        #if paperformat:
+        #    file.write("%%%%PageMedia: %s\n" % paperformat)
+        #file.write("%%%%PageOrientation: %s\n" % (rotated and "Landscape" or "Portrait"))
+        #file.write("%%EndDefaults\n")
+
+        # document prolog section
+        file.write("%%BeginProlog\n")
+        mergedprolog = []
+        for apage in self.pages:
+            for pritem in apage.prolog():
+                for mpritem in mergedprolog:
+                    if mpritem.merge(pritem) is None: break
+                else:
+                    mergedprolog.append(pritem)
+        for pritem in mergedprolog:
+            pritem.outputPS(file)
+        file.write("%%EndProlog\n")
+
+        # document setup section
+        #file.write("%%BeginSetup\n")
+        #file.write("%%EndSetup\n")
+
+        # pages section
+        for nr, apage in enumerate(self.pages):
+            file.write("%%%%Page: %s %d\n" % (apage.pagename is None and str(nr) or apage.pagename , nr+1))
+            apage.outputPS(file)
+
+        file.write("%%Trailer\n")
+        file.write("%%EOF\n")

@@ -40,11 +40,210 @@ class _style:
                 del columns[datakey]
                 return graph.axes[axisname], index
 
-    def key_pt(self, c, x_pt, y_pt, width_pt, height_pt, data):
+    def key_pt(self, c, x_pt, y_pt, width_pt, height_pt, styledata):
         raise RuntimeError("style doesn't provide a key")
 
+    def adjustaxes(self, points, columns, styledata):
+        return
 
-class symbolline(_style):
+    def setdata(self, graph, columns, styledata):
+        return columns
+
+    def selectstyle(self, selectindex, selecttotal, styledata):
+        pass
+
+    def initdrawpoints(self, graph, styledata):
+        pass
+
+    def drawpoint(self, graph, styledata):
+        pass
+
+    def donedrawpoints(self, graph, styledata):
+        pass
+
+
+class pointpos(_style):
+
+    def __init__(self, epsilon=1e-10):
+        self.epsilon = epsilon
+
+    def setdata(self, graph, columns, styledata):
+        # analyse column information
+        styledata.pointposaxisindex = []
+        columns = columns.copy()
+        for axisname in graph.axisnames:
+            pattern = re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % axisname)
+            styledata.pointposaxisindex.append(self.setdatapattern(graph, columns, pattern)) # TODO: append "needed=1"
+        return columns
+
+    def adjustaxes(self, points, columns, styledata):
+        for axis, index in styledata.pointposaxisindex:
+            axis.adjustrange(points, index)
+
+    def drawpoint(self, graph, styledata):
+        # calculate vpos
+        styledata.validvpos = 1 # valid position (but might be outside of the graph)
+        styledata.drawsymbol = 1 # valid position inside the graph
+        styledata.vpos = [axis.convert(styledata.point[index]) for axis, index in styledata.pointposaxisindex]
+        # for axisname in graph.axisnames:
+        #     try:
+        #         v = styledata.axes[axisname].convert(styledata.point[styledata.index[axisname]["x"]])
+        #     except (ArithmeticError, KeyError, ValueError, TypeError):
+        #         styledata.validvpos = 0
+        #         styledata.drawsymbol = 0
+        #         styledata.vpos.append(None)
+        #     else:
+        #         if v < - self.epsilon or v > 1 + self.epsilon:
+        #             styledata.drawsymbol = 0
+        #         styledata.vpos.append(v)
+
+
+class rangepos(_style):
+
+    def setdata(self, graph, columns, styledata):
+        """
+        - the instance should be considered read-only
+          (it might be shared between several data)
+        - styledata is the place where to store information
+        - returns the dictionary of columns not used by the style"""
+
+        # analyse column information
+        styledata.index = {} # a nested index dictionary containing
+                        # column numbers, e.g. styledata.index["x"]["x"],
+                        # styledata.index["y"]["dmin"] etc.; the first key is a axis
+                        # name (without the axis number), the second is one of
+                        # the datanames ["x", "min", "max", "d", "dmin", "dmax"]
+        styledata.axes = {}  # mapping from axis name (without axis number) to the axis
+
+        columns = columns.copy()
+        for axisname in graph.axisnames:
+            for dataname, pattern in [("x", re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % axisname)),
+                                      ("min", re.compile(r"(%s([2-9]|[1-9][0-9]+)?)min$" % axisname)),
+                                      ("max", re.compile(r"(%s([2-9]|[1-9][0-9]+)?)max$" % axisname)),
+                                      ("d", re.compile(r"d(%s([2-9]|[1-9][0-9]+)?)$" % axisname)),
+                                      ("dmin", re.compile(r"d(%s([2-9]|[1-9][0-9]+)?)min$" % axisname)),
+                                      ("dmax", re.compile(r"d(%s([2-9]|[1-9][0-9]+)?)max$" % axisname))]:
+                matchresult = self.setdatapattern(graph, columns, pattern)
+                if matchresult is not None:
+                    axis, index = matchresult
+                    if styledata.axes.has_key(axisname):
+                        if styledata.axes[axisname] != axis:
+                            raise ValueError("axis mismatch for axis name '%s'" % axisname)
+                        styledata.index[axisname][dataname] = index
+                    else:
+                        styledata.index[axisname] = {dataname: index}
+                        styledata.axes[axisname] = axis
+            if not styledata.axes.has_key(axisname):
+                raise ValueError("missing columns for axis name '%s'" % axisname)
+            if ((styledata.index[axisname].has_key("min") and styledata.index[axisname].has_key("d")) or
+                (styledata.index[axisname].has_key("min") and styledata.index[axisname].has_key("dmin")) or
+                (styledata.index[axisname].has_key("d") and styledata.index[axisname].has_key("dmin")) or
+                (styledata.index[axisname].has_key("max") and styledata.index[axisname].has_key("d")) or
+                (styledata.index[axisname].has_key("max") and styledata.index[axisname].has_key("dmax")) or
+                (styledata.index[axisname].has_key("d") and styledata.index[axisname].has_key("dmax"))):
+                raise ValueError("multiple errorbar definition for axis name '%s'" % axisname)
+            if (not styledata.index[axisname].has_key("x") and
+                (styledata.index[axisname].has_key("d") or
+                 styledata.index[axisname].has_key("dmin") or
+                 styledata.index[axisname].has_key("dmax"))):
+                raise ValueError("errorbar definition start value missing for axis name '%s'" % axisname)
+        return columns
+
+    def adjustaxes(self, points, columns, styledata):
+        # reverse lookup for axisnames
+        # TODO: the reverse lookup is ugly
+        axisnames = []
+        for column in columns:
+            for axisname in styledata.index.keys():
+                for thiscolumn in styledata.index[axisname].values():
+                    if thiscolumn == column and axisname not in axisnames:
+                        axisnames.append(axisname)
+        # TODO: perform check to verify that all columns for a given axisname are available at the same time
+        for axisname in axisnames:
+            if styledata.index[axisname].has_key("x"):
+                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["x"])
+            if styledata.index[axisname].has_key("min"):
+                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["min"])
+            if styledata.index[axisname].has_key("max"):
+                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["max"])
+            if styledata.index[axisname].has_key("d"):
+                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["x"], deltaindex=styledata.index[axisname]["d"])
+            if styledata.index[axisname].has_key("dmin"):
+                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["x"], deltaminindex=styledata.index[axisname]["dmin"])
+            if styledata.index[axisname].has_key("dmax"):
+                styledata.axes[axisname].adjustrange(points, styledata.index[axisname]["x"], deltamaxindex=styledata.index[axisname]["dmax"])
+
+    def doerrorbars(self, styledata):
+        # errorbar loop over the different direction having errorbars
+        for erroraxisname, erroraxisindex in styledata.errorlist:
+
+            # check for validity of other point components
+            i = 0
+            for v in styledata.vpos:
+                if v is None and i != erroraxisindex:
+                    break
+                i += 1
+            else:
+                # calculate min and max
+                errorindex = styledata.index[erroraxisname]
+                try:
+                    min = styledata.point[errorindex["x"]] - styledata.point[errorindex["d"]]
+                except:
+                    try:
+                        min = styledata.point[errorindex["x"]] - styledata.point[errorindex["dmin"]]
+                    except:
+                        try:
+                            min = styledata.point[errorindex["min"]]
+                        except:
+                            min = None
+                try:
+                    max = styledata.point[errorindex["x"]] + styledata.point[errorindex["d"]]
+                except:
+                    try:
+                        max = styledata.point[errorindex["x"]] + styledata.point[errorindex["dmax"]]
+                    except:
+                        try:
+                            max = styledata.point[errorindex["max"]]
+                        except:
+                            max = None
+
+                # calculate vmin and vmax
+                try:
+                    vmin = styledata.axes[erroraxisname].convert(min)
+                except:
+                    vmin = None
+                try:
+                    vmax = styledata.axes[erroraxisname].convert(max)
+                except:
+                    vmax = None
+
+                # create vminpos and vmaxpos
+                vcaps = []
+                if vmin is not None:
+                    vminpos = styledata.vpos[:]
+                    if vmin > - self.epsilon and vmin < 1 + self.epsilon:
+                        vminpos[erroraxisindex] = vmin
+                        vcaps.append(vminpos)
+                    else:
+                        vminpos[erroraxisindex] = 0
+                elif styledata.vpos[erroraxisindex] is not None:
+                    vminpos = styledata.vpos
+                else:
+                    break
+                if vmax is not None:
+                    vmaxpos = styledata.vpos[:]
+                    if vmax > - self.epsilon and vmax < 1 + self.epsilon:
+                        vmaxpos[erroraxisindex] = vmax
+                        vcaps.append(vmaxpos)
+                    else:
+                        vmaxpos[erroraxisindex] = 1
+                elif styledata.vpos[erroraxisindex] is not None:
+                    vmaxpos = styledata.vpos
+                else:
+                    break
+
+
+class symbol(_style):
 
     def cross(self, x_pt, y_pt, size_pt):
         return (path.moveto_pt(x_pt-0.5*size_pt, y_pt-0.5*size_pt),
@@ -96,399 +295,273 @@ class symbolline(_style):
     changestrokedfilled = attr.changelist([deco.stroked, deco.filled])
     changefilledstroked = attr.changelist([deco.filled, deco.stroked])
 
+    defaultsymbolattrs = [deco.stroked]
+
+    def __init__(self, symbol=changecross,
+                       size=0.2*unit.v_cm,
+                       symbolattrs=[],
+                       epsilon=1e-10):
+        self.symbol = symbol
+        self.size = size
+        self.symbolattrs = symbolattrs
+        self.epsilon = epsilon
+
+    def selectstyle(self, selectindex, selecttotal, styledata):
+        styledata.symbol = attr.selectattr(self.symbol, selectindex, selecttotal)
+        styledata.size_pt = unit.topt(attr.selectattr(self.size, selectindex, selecttotal))
+        if self.symbolattrs is not None:
+            styledata.symbolattrs = attr.selectattrs(self.defaultsymbolattrs + self.symbolattrs, selectindex, selecttotal)
+        else:
+            styledata.symbolattrs = None
+
+    def drawsymbol_pt(self, c, x_pt, y_pt, styledata, point=None):
+        if styledata.symbolattrs is not None:
+            c.draw(path.path(*styledata.symbol(self, x_pt, y_pt, styledata.size_pt)), styledata.symbolattrs)
+
+    def drawpoint(self, graph, styledata):
+        if styledata.drawsymbol:
+            styledata.xpos, styledata.ypos = graph.vpos_pt(*styledata.vpos)
+            self.drawsymbol_pt(graph, styledata.xpos, styledata.ypos, styledata, point=styledata.point)
+
+    def key_pt(self, c, x_pt, y_pt, width_pt, height_pt, styledata):
+        self.drawsymbol_pt(c, x_pt+0.5*width_pt, y_pt+0.5*height_pt, styledata)
+#        if styledata.lineattrs is not None:
+#            c.stroke(path.line_pt(x_pt, y_pt+0.5*height_pt, x_pt+width_pt, y_pt+0.5*height_pt), styledata.lineattrs)
+
+
+class line(_style):
+
     changelinestyle = attr.changelist([style.linestyle.solid,
                                        style.linestyle.dashed,
                                        style.linestyle.dotted,
                                        style.linestyle.dashdotted])
 
-    defaultsymbolattrs = [deco.stroked]
-    defaulterrorbarattrs = []
     defaultlineattrs = [changelinestyle]
 
-    def __init__(self, symbol=changecross,
-                       size="0.2 cm",
-                       errorscale=0.5,
-                       symbolattrs=[],
-                       errorbarattrs=[],
-                       lineattrs=[],
-                       epsilon=1e-10):
-        self.size_str = size
-        self.symbol = symbol
-        self.errorscale = errorscale
-        self.symbolattrs = symbolattrs
-        self.errorbarattrs = errorbarattrs
+    def __init__(self, lineattrs=[]):
         self.lineattrs = lineattrs
-        self.epsilon = epsilon
 
-    def setdata(self, graph, columns, data):
-        """
-        - the instance should be considered read-only
-          (it might be shared between several data)
-        - data is the place where to store information
-        - returns the dictionary of columns not used by the style"""
+    def selectstyle(self, selectindex, selecttotal, styledata):
+        styledata.lineattrs = attr.selectattrs(self.defaultlineattrs + self.lineattrs, selectindex, selecttotal)
 
-        # analyse column information
-        data.index = {} # a nested index dictionary containing
-                        # column numbers, e.g. data.index["x"]["x"],
-                        # data.index["y"]["dmin"] etc.; the first key is a axis
-                        # name (without the axis number), the second is one of
-                        # the datanames ["x", "min", "max", "d", "dmin", "dmax"]
-        data.axes = {}  # mapping from axis name (without axis number) to the axis
+    def initdrawpoints(self, graph, styledata):
+        styledata.linecanvas = graph.insert(canvas.canvas())
+        styledata.path = path.path()
+        styledata.linebasepoints = []
+        styledata.lastvpos = None
 
-        columns = columns.copy()
-        for axisname in graph.axisnames:
-            for dataname, pattern in [("x", re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % axisname)),
-                                      ("min", re.compile(r"(%s([2-9]|[1-9][0-9]+)?)min$" % axisname)),
-                                      ("max", re.compile(r"(%s([2-9]|[1-9][0-9]+)?)max$" % axisname)),
-                                      ("d", re.compile(r"d(%s([2-9]|[1-9][0-9]+)?)$" % axisname)),
-                                      ("dmin", re.compile(r"d(%s([2-9]|[1-9][0-9]+)?)min$" % axisname)),
-                                      ("dmax", re.compile(r"d(%s([2-9]|[1-9][0-9]+)?)max$" % axisname))]:
-                matchresult = self.setdatapattern(graph, columns, pattern)
-                if matchresult is not None:
-                    axis, index = matchresult
-                    if data.axes.has_key(axisname):
-                        if data.axes[axisname] != axis:
-                            raise ValueError("axis mismatch for axis name '%s'" % axisname)
-                        data.index[axisname][dataname] = index
-                    else:
-                        data.index[axisname] = {dataname: index}
-                        data.axes[axisname] = axis
-            if not data.axes.has_key(axisname):
-                raise ValueError("missing columns for axis name '%s'" % axisname)
-            if ((data.index[axisname].has_key("min") and data.index[axisname].has_key("d")) or
-                (data.index[axisname].has_key("min") and data.index[axisname].has_key("dmin")) or
-                (data.index[axisname].has_key("d") and data.index[axisname].has_key("dmin")) or
-                (data.index[axisname].has_key("max") and data.index[axisname].has_key("d")) or
-                (data.index[axisname].has_key("max") and data.index[axisname].has_key("dmax")) or
-                (data.index[axisname].has_key("d") and data.index[axisname].has_key("dmax"))):
-                raise ValueError("multiple errorbar definition for axis name '%s'" % axisname)
-            if (not data.index[axisname].has_key("x") and
-                (data.index[axisname].has_key("d") or
-                 data.index[axisname].has_key("dmin") or
-                 data.index[axisname].has_key("dmax"))):
-                raise ValueError("errorbar definition start value missing for axis name '%s'" % axisname)
-        return columns
-
-    def selectstyle(self, selectindex, selecttotal, data):
-        data.symbol = attr.selectattr(self.symbol, selectindex, selecttotal)
-        data.size_pt = unit.topt(unit.length(attr.selectattr(self.size_str, selectindex, selecttotal), default_type="v"))
-        data.errorsize_pt = self.errorscale * data.size_pt
-        if self.symbolattrs is not None:
-            data.symbolattrs = attr.selectattrs(self.defaultsymbolattrs + self.symbolattrs, selectindex, selecttotal)
-        else:
-            data.symbolattrs = None
-        if self.errorbarattrs is not None:
-            data.errorbarattrs = attr.selectattrs(self.defaulterrorbarattrs + self.errorbarattrs, selectindex, selecttotal)
-        else:
-            data.errorbarattrs = None
-        if self.lineattrs is not None:
-            data.lineattrs = attr.selectattrs(self.defaultlineattrs + self.lineattrs, selectindex, selecttotal)
-        else:
-            data.lineattrs = None
-
-    def adjustaxes(self, columns, data):
-        # reverse lookup for axisnames
-        # TODO: the reverse lookup is ugly
-        axisnames = []
-        for column in columns:
-            for axisname in data.index.keys():
-                for thiscolumn in data.index[axisname].values():
-                    if thiscolumn == column and axisname not in axisnames:
-                        axisnames.append(axisname)
-        # TODO: perform check to verify that all columns for a given axisname are available at the same time
-        for axisname in axisnames:
-            if data.index[axisname].has_key("x"):
-                data.axes[axisname].adjustrange(data.points, data.index[axisname]["x"])
-            if data.index[axisname].has_key("min"):
-                data.axes[axisname].adjustrange(data.points, data.index[axisname]["min"])
-            if data.index[axisname].has_key("max"):
-                data.axes[axisname].adjustrange(data.points, data.index[axisname]["max"])
-            if data.index[axisname].has_key("d"):
-                data.axes[axisname].adjustrange(data.points, data.index[axisname]["x"], deltaindex=data.index[axisname]["d"])
-            if data.index[axisname].has_key("dmin"):
-                data.axes[axisname].adjustrange(data.points, data.index[axisname]["x"], deltaminindex=data.index[axisname]["dmin"])
-            if data.index[axisname].has_key("dmax"):
-                data.axes[axisname].adjustrange(data.points, data.index[axisname]["x"], deltamaxindex=data.index[axisname]["dmax"])
-
-    def drawsymbol_pt(self, c, x_pt, y_pt, data, point=None):
-        if data.symbolattrs is not None:
-            c.draw(path.path(*data.symbol(self, x_pt, y_pt, data.size_pt)), data.symbolattrs)
-
-    def drawpoints(self, graph, data):
-        if data.lineattrs is not None:
-            # TODO: bbox shortcut
-            linecanvas = graph.insert(canvas.canvas())
-        if data.errorbarattrs is not None:
-            # TODO: bbox shortcut
-            errorbarcanvas = graph.insert(canvas.canvas())
-        data.path = path.path()
-        linebasepoints = []
-        lastvpos = None
-        errorlist = []
-        if data.errorbarattrs is not None:
-            axisindex = 0
-            for axisname in graph.axisnames:
-                if data.index[axisname].keys() != ["x"]:
-                    errorlist.append((axisname, axisindex))
-                axisindex += 1
-
-        for point in data.points:
-            # calculate vpos
-            vpos = [] # list containing the graph coordinates of the point
-            validvpos = 1 # valid position (but might be outside of the graph)
-            drawsymbol = 1 # valid position inside the graph
-            for axisname in graph.axisnames:
-                try:
-                    v = data.axes[axisname].convert(point[data.index[axisname]["x"]])
-                except:
-                    validvpos = 0
-                    drawsymbol = 0
-                    vpos.append(None)
+    def appendlinebasepoints(self, graph, styledata):
+        # append linebasepoints
+        if styledata.validvpos:
+            if len(styledata.linebasepoints):
+                # the last point was inside the graph
+                if styledata.drawsymbol: # this is wrong
+                    # we always need the following line here:
+                    styledata.xpos, styledata.ypos = graph.vpos_pt(*styledata.vpos)
+                    styledata.linebasepoints.append((styledata.xpos, styledata.ypos))
                 else:
-                    if v < - self.epsilon or v > 1 + self.epsilon:
-                        drawsymbol = 0
-                    vpos.append(v)
-
-            # draw symbol
-            if drawsymbol:
-                xpos, ypos = graph.vpos_pt(*vpos)
-                self.drawsymbol_pt(graph, xpos, ypos, data, point=point)
-
-            # append linebasepoints
-            if validvpos:
-                if len(linebasepoints):
-                    # the last point was inside the graph
-                    if drawsymbol:
-                        linebasepoints.append((xpos, ypos))
-                    else:
-                        # cut end
-                        cut = 1
-                        for vstart, vend in zip(lastvpos, vpos):
-                            newcut = None
-                            if vend > 1:
-                                # 1 = vstart + (vend - vstart) * cut
+                    # cut end
+                    cut = 1
+                    for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                        newcut = None
+                        if vend > 1:
+                            # 1 = vstart + (vend - vstart) * cut
+                            try:
                                 newcut = (1 - vstart)/(vend - vstart)
-                            if vend < 0:
-                                # 0 = vstart + (vend - vstart) * cut
+                            except ArithmeticError:
+                                break
+                        if vend < 0:
+                            # 0 = vstart + (vend - vstart) * cut
+                            try:
                                 newcut = - vstart/(vend - vstart)
-                            if newcut is not None and newcut < cut:
-                                cut = newcut
+                            except ArithmeticError:
+                                break
+                        if newcut is not None and newcut < cut:
+                            cut = newcut
+                    else:
                         cutvpos = []
-                        for vstart, vend in zip(lastvpos, vpos):
+                        for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
                             cutvpos.append(vstart + (vend - vstart) * cut)
-                        linebasepoints.append(graph.vpos_pt(*cutvpos))
-                        validvpos = 0 # clear linebasepoints below
-                else:
-                    # the last point was outside the graph
-                    if lastvpos is not None:
-                        if drawsymbol:
-                            # cut beginning
-                            cut = 0
-                            for vstart, vend in zip(lastvpos, vpos):
-                                newcut = None
-                                if vstart > 1:
-                                    # 1 = vstart + (vend - vstart) * cut
+                        styledata.linebasepoints.append(styledata.graph.vpos_pt(*cutvpos))
+                        styledata.validvpos = 0 # clear linebasepoints below
+            else:
+                # the last point was outside the graph
+                if styledata.lastvpos is not None:
+                    if styledata.drawsymbol:
+                        # cut beginning
+                        cut = 0
+                        for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                            newcut = None
+                            if vstart > 1:
+                                # 1 = vstart + (vend - vstart) * cut
+                                try:
                                     newcut = (1 - vstart)/(vend - vstart)
-                                if vstart < 0:
-                                    # 0 = vstart + (vend - vstart) * cut
+                                except ArithmeticError:
+                                    break
+                            if vstart < 0:
+                                # 0 = vstart + (vend - vstart) * cut
+                                try:
                                     newcut = - vstart/(vend - vstart)
-                                if newcut is not None and newcut > cut:
-                                    cut = newcut
-                            cutvpos = []
-                            for vstart, vend in zip(lastvpos, vpos):
-                                cutvpos.append(vstart + (vend - vstart) * cut)
-                            linebasepoints.append(graph.vpos_pt(*cutvpos))
-                            linebasepoints.append(graph.vpos_pt(*vpos))
+                                except ArithmeticError:
+                                    break
+                            if newcut is not None and newcut > cut:
+                                cut = newcut
                         else:
-                            # sometimes cut beginning and end
-                            cutfrom = 0
-                            cutto = 1
-                            for vstart, vend in zip(lastvpos, vpos):
-                                newcutfrom = None
-                                if vstart > 1:
-                                    # 1 = vstart + (vend - vstart) * cutfrom
-                                    newcutfrom = (1 - vstart)/(vend - vstart)
-                                if vstart < 0:
-                                    # 0 = vstart + (vend - vstart) * cutfrom
-                                    newcutfrom = - vstart/(vend - vstart)
-                                if newcutfrom is not None and newcutfrom > cutfrom:
-                                    cutfrom = newcutfrom
-                                newcutto = None
+                            cutvpos = []
+                            for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                                cutvpos.append(vstart + (vend - vstart) * cut)
+                            styledata.linebasepoints.append(graph.vpos_pt(*cutvpos))
+                            styledata.linebasepoints.append(graph.vpos_pt(*styledata.vpos))
+                    else:
+                        # sometimes cut beginning and end
+                        cutfrom = 0
+                        cutto = 1
+                        for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
+                            newcutfrom = None
+                            if vstart > 1:
                                 if vend > 1:
-                                    # 1 = vstart + (vend - vstart) * cutto
-                                    newcutto = (1 - vstart)/(vend - vstart)
+                                    break
+                                # 1 = vstart + (vend - vstart) * cutfrom
+                                try:
+                                    newcutfrom = (1 - vstart)/(vend - vstart)
+                                except ArithmeticError:
+                                    break
+                            if vstart < 0:
                                 if vend < 0:
-                                    # 0 = vstart + (vend - vstart) * cutto
+                                    break
+                                # 0 = vstart + (vend - vstart) * cutfrom
+                                try:
+                                    newcutfrom = - vstart/(vend - vstart)
+                                except ArithmeticError:
+                                    break
+                            if newcutfrom is not None and newcutfrom > cutfrom:
+                                cutfrom = newcutfrom
+                            newcutto = None
+                            if vend > 1:
+                                # 1 = vstart + (vend - vstart) * cutto
+                                try:
+                                    newcutto = (1 - vstart)/(vend - vstart)
+                                except ArithmeticError:
+                                    break
+                            if vend < 0:
+                                # 0 = vstart + (vend - vstart) * cutto
+                                try:
                                     newcutto = - vstart/(vend - vstart)
-                                if newcutto is not None and newcutto < cutto:
-                                    cutto = newcutto
+                                except ArithmeticError:
+                                    break
+                            if newcutto is not None and newcutto < cutto:
+                                cutto = newcutto
+                        else:
                             if cutfrom < cutto:
                                 cutfromvpos = []
                                 cuttovpos = []
-                                for vstart, vend in zip(lastvpos, vpos):
+                                for vstart, vend in zip(styledata.lastvpos, styledata.vpos):
                                     cutfromvpos.append(vstart + (vend - vstart) * cutfrom)
                                     cuttovpos.append(vstart + (vend - vstart) * cutto)
-                                linebasepoints.append(graph.vpos_pt(*cutfromvpos))
-                                linebasepoints.append(graph.vpos_pt(*cuttovpos))
-                                validvpos = 0 # clear linebasepoints below
-                lastvpos = vpos
+                                styledata.linebasepoints.append(styledata.graph.vpos_pt(*cutfromvpos))
+                                styledata.linebasepoints.append(styledata.graph.vpos_pt(*cuttovpos))
+                        styledata.validvpos = 0 # clear linebasepoints below
+            styledata.lastvpos = styledata.vpos
+        else:
+            styledata.lastvpos = None
+
+    def addpointstopath(self, styledata):
+        # add baselinepoints to styledata.path
+        if len(styledata.linebasepoints) > 1:
+            styledata.path.append(path.moveto_pt(*styledata.linebasepoints[0]))
+            if len(styledata.linebasepoints) > 2:
+                styledata.path.append(path.multilineto_pt(styledata.linebasepoints[1:]))
             else:
-                lastvpos = None
+                styledata.path.append(path.lineto_pt(*styledata.linebasepoints[1]))
+        styledata.linebasepoints = []
 
-            if not validvpos:
-                # add baselinepoints to data.path
-                if len(linebasepoints) > 1:
-                    data.path.append(path.moveto_pt(*linebasepoints[0]))
-                    if len(linebasepoints) > 2:
-                        data.path.append(path.multilineto_pt(linebasepoints[1:]))
-                    else:
-                        data.path.append(path.lineto_pt(*linebasepoints[1]))
-                linebasepoints = []
+    def donedrawpoints(self, graph, styledata):
+        self.addpointstopath(styledata)
+        if styledata.lineattrs is not None and len(styledata.path.path):
+            styledata.linecanvas.stroke(styledata.path, styledata.lineattrs)
 
-            # errorbar loop over the different direction having errorbars
-            for erroraxisname, erroraxisindex in errorlist:
-
-                # check for validity of other point components
-                i = 0
-                for v in vpos:
-                    if v is None and i != erroraxisindex:
-                        break
-                    i += 1
-                else:
-                    # calculate min and max
-                    errorindex = data.index[erroraxisname]
-                    try:
-                        min = point[errorindex["x"]] - point[errorindex["d"]]
-                    except:
-                        try:
-                            min = point[errorindex["x"]] - point[errorindex["dmin"]]
-                        except:
-                            try:
-                                min = point[errorindex["min"]]
-                            except:
-                                min = None
-                    try:
-                        max = point[errorindex["x"]] + point[errorindex["d"]]
-                    except:
-                        try:
-                            max = point[errorindex["x"]] + point[errorindex["dmax"]]
-                        except:
-                            try:
-                                max = point[errorindex["max"]]
-                            except:
-                                max = None
-
-                    # calculate vmin and vmax
-                    try:
-                        vmin = data.axes[erroraxisname].convert(min)
-                    except:
-                        vmin = None
-                    try:
-                        vmax = data.axes[erroraxisname].convert(max)
-                    except:
-                        vmax = None
-
-                    # create vminpos and vmaxpos
-                    vcaps = []
-                    if vmin is not None:
-                        vminpos = vpos[:]
-                        if vmin > - self.epsilon and vmin < 1 + self.epsilon:
-                            vminpos[erroraxisindex] = vmin
-                            vcaps.append(vminpos)
-                        else:
-                            vminpos[erroraxisindex] = 0
-                    elif vpos[erroraxisindex] is not None:
-                        vminpos = vpos
-                    else:
-                        break
-                    if vmax is not None:
-                        vmaxpos = vpos[:]
-                        if vmax > - self.epsilon and vmax < 1 + self.epsilon:
-                            vmaxpos[erroraxisindex] = vmax
-                            vcaps.append(vmaxpos)
-                        else:
-                            vmaxpos[erroraxisindex] = 1
-                    elif vpos[erroraxisindex] is not None:
-                        vmaxpos = vpos
-                    else:
-                        break
-
-                    # create path for errorbars
-                    errorpath = path.path()
-                    errorpath += graph.vgeodesic(*(vminpos + vmaxpos))
-                    for vcap in vcaps:
-                        for axisname in graph.axisnames:
-                            if axisname != erroraxisname:
-                                errorpath += graph.vcap_pt(axisname, data.errorsize_pt, *vcap)
-
-                    # stroke errorpath
-                    if len(errorpath.path):
-                        errorbarcanvas.stroke(errorpath, data.errorbarattrs)
-
-        # add baselinepoints to data.path
-        if len(linebasepoints) > 1:
-            data.path.append(path.moveto_pt(*linebasepoints[0]))
-            if len(linebasepoints) > 2:
-                data.path.append(path.multilineto_pt(linebasepoints[1:]))
-            else:
-                data.path.append(path.lineto_pt(*linebasepoints[1]))
-
-        # stroke data.path
-        if data.lineattrs is not None:
-            linecanvas.stroke(data.path, data.lineattrs)
-
-    def key_pt(self, c, x_pt, y_pt, width_pt, height_pt, data):
-        self.drawsymbol_pt(c, x_pt+0.5*width_pt, y_pt+0.5*height_pt, data)
-        if data.lineattrs is not None:
-            c.stroke(path.line_pt(x_pt, y_pt+0.5*height_pt, x_pt+width_pt, y_pt+0.5*height_pt), data.lineattrs)
+    def drawpoint(self, graph, styledata):
+        self.appendlinebasepoints(graph, styledata)
+        if not styledata.validvpos:
+            self.addpointstopath(styledata)
 
 
-class symbol(symbolline):
+class errorbars(_style):
 
-    def __init__(self, *args, **kwargs):
-        symbolline.__init__(self, lineattrs=None, *args, **kwargs)
+    defaulterrorbarattrs = []
 
+    def __init__(self, size=0.1*unit.v_cm,
+                       errorbarattrs=[],
+                       epsilon=1e-10):
+        self.size = size
+        self.errorbarattrs = errorbarattrs
+        self.epsilon = epsilon
 
-class line(symbolline):
+    def selectstyle(self, selectindex, selecttotal, styledata):
+        styledata.errorsize_pt = unit.topt(attr.selectattr(self.size, selectindex, selecttotal))
+        styledata.errorbarattrs = attr.selectattrs(self.defaulterrorbarattrs + self.errorbarattrs, selectindex, selecttotal)
 
-    def __init__(self, lineattrs=[]):
-        symbolline.__init__(self, symbolattrs=None, errorbarattrs=None, lineattrs=lineattrs)
+    def initdrawpoints(self, graph, styledata):
+        styledata.errorbarcanvas = graph.insert(canvas.canvas())
+        styledata.errorlist = []
+        if styledata.errorbarattrs is not None:
+            axisindex = 0
+            for axisname in graph.axisnames:
+                if styledata.index[axisname].keys() != ["x"]:
+                    styledata.errorlist.append((axisname, axisindex))
+                axisindex += 1
+
+    def doerrorbars(self, styledata):
+        # errorbar loop over the different direction having errorbars
+        for erroraxisname, erroraxisindex in styledata.errorlist:
+                # create path for errorbars
+                errorpath = path.path()
+                errorpath += styledata.graph.vgeodesic(*(vminpos + vmaxpos))
+                for vcap in vcaps:
+                    for axisname in styledata.graph.axisnames:
+                        if axisname != erroraxisname:
+                            errorpath += styledata.graph.vcap_pt(axisname, styledata.errorsize_pt, *vcap)
+
+                # stroke errorpath
+                if len(errorpath.path):
+                    styledata.errorbarcanvas.stroke(errorpath, styledata.errorbarattrs)
+
+    def drawpoint(self, graph, styledata):
+        self.doerrorbars(styledata)
 
 
 class text(symbol):
 
     defaulttextattrs = [textmodule.halign.center, textmodule.vshift.mathaxis]
 
-    def __init__(self, textdx="0", textdy="0.3 cm", textattrs=[], **kwargs):
-        self.textdx_str = textdx
-        self.textdy_str = textdy
+    def __init__(self, textdx=0*unit.v_cm, textdy=0.3*unit.v_cm, textattrs=[], **kwargs):
+        self.textdx = textdx
+        self.textdy = textdy
         self.textattrs = textattrs
         symbol.__init__(self, **kwargs)
 
-    def setdata(self, graph, columns, data):
+    def setdata(self, graph, columns, styledata):
         columns = columns.copy()
-        data.textindex = columns["text"]
+        styledata.textindex = columns["text"]
         del columns["text"]
-        return symbol.setdata(self, graph, columns, data)
+        return symbol.setdata(self, graph, columns, styledata)
 
-    def selectstyle(self, selectindex, selecttotal, data):
+    def selectstyle(self, selectindex, selecttotal, styledata):
         if self.textattrs is not None:
-            data.textattrs = attr.selectattrs(self.defaulttextattrs + self.textattrs, selectindex, selecttotal)
+            styledata.textattrs = attr.selectattrs(self.defaulttextattrs + self.textattrs, selectindex, selecttotal)
         else:
-            data.textattrs = None
-        symbol.selectstyle(self, selectindex, selecttotal, data)
+            styledata.textattrs = None
+        symbol.selectstyle(self, selectindex, selecttotal, styledata)
 
-    def drawsymbol_pt(self, c, x, y, data, point=None):
-        symbol.drawsymbol_pt(self, c, x, y, data, point)
-        if None not in (x, y, point[data.textindex]) and data.textattrs is not None:
-            c.text_pt(x + data.textdx_pt, y + data.textdy_pt, str(point[data.textindex]), data.textattrs)
+    def drawsymbol_pt(self, c, x, y, styledata, point=None):
+        symbol.drawsymbol_pt(self, c, x, y, styledata, point)
+        if None not in (x, y, point[styledata.textindex]) and styledata.textattrs is not None:
+            c.text_pt(x + styledata.textdx_pt, y + styledata.textdy_pt, str(point[styledata.textindex]), styledata.textattrs)
 
-    def drawpoints(self, graph, data):
-        data.textdx = unit.length(self.textdx_str, default_type="v")
-        data.textdy = unit.length(self.textdy_str, default_type="v")
-        data.textdx_pt = unit.topt(data.textdx)
-        data.textdy_pt = unit.topt(data.textdy)
-        symbol.drawpoints(self, graph, data)
+    def drawpoints(self, points, graph, styledata):
+        styledata.textdx_pt = unit.topt(self.textdx)
+        styledata.textdy_pt = unit.topt(self.textdy)
+        symbol.drawpoints(self, points, graph, styledata)
 
 
 class arrow(_style):
@@ -496,58 +569,55 @@ class arrow(_style):
     defaultlineattrs = []
     defaultarrowattrs = []
 
-    def __init__(self, linelength="0.25 cm", arrowsize="0.15 cm", lineattrs=[], arrowattrs=[], epsilon=1e-10):
-        self.linelength_str = linelength
-        self.arrowsize_str = arrowsize
+    def __init__(self, linelength=0.25*unit.v_cm, arrowsize=0.15*unit.v_cm, lineattrs=[], arrowattrs=[], epsilon=1e-10):
+        self.linelength = linelength
+        self.arrowsize = arrowsize
         self.lineattrs = lineattrs
         self.arrowattrs = arrowattrs
         self.epsilon = epsilon
 
-    def setdata(self, graph, columns, data):
+    def setdata(self, graph, columns, styledata):
         if len(graph.axisnames) != 2:
             raise TypeError("arrow style restricted on two-dimensional graphs")
         columns = columns.copy()
-        data.xaxis, data.xindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % graph.axisnames[0]))
-        data.yaxis, data.yindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % graph.axisnames[1]))
-        data.sizeindex = columns["size"]
+        styledata.xaxis, styledata.xindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % graph.axisnames[0]))
+        styledata.yaxis, styledata.yindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)$" % graph.axisnames[1]))
+        styledata.sizeindex = columns["size"]
         del columns["size"]
-        data.angleindex = columns["angle"]
+        styledata.angleindex = columns["angle"]
         del columns["angle"]
         return columns
 
-    def adjustaxes(self, columns, data):
-        if data.xindex in columns:
-            data.xaxis.adjustrange(data.points, data.xindex)
-        if data.yindex in columns:
-            data.yaxis.adjustrange(data.points, data.yindex)
+    def adjustaxes(self, points, columns, styledata):
+        if styledata.xindex in columns:
+            styledata.xaxis.adjustrange(points, styledata.xindex)
+        if styledata.yindex in columns:
+            styledata.yaxis.adjustrange(points, styledata.yindex)
 
-    def selectstyle(self, selectindex, selecttotal, data):
+    def selectstyle(self, selectindex, selecttotal, styledata):
         if self.lineattrs is not None:
-            data.lineattrs = attr.selectattrs(self.defaultlineattrs + self.lineattrs, selectindex, selecttotal)
+            styledata.lineattrs = attr.selectattrs(self.defaultlineattrs + self.lineattrs, selectindex, selecttotal)
         else:
-            data.lineattrs = None
+            styledata.lineattrs = None
         if self.arrowattrs is not None:
-            data.arrowattrs = attr.selectattrs(self.defaultarrowattrs + self.arrowattrs, selectindex, selecttotal)
+            styledata.arrowattrs = attr.selectattrs(self.defaultarrowattrs + self.arrowattrs, selectindex, selecttotal)
         else:
-            data.arrowattrs = None
+            styledata.arrowattrs = None
 
-    def drawpoints(self, graph, data):
-        if data.lineattrs is not None and data.arrowattrs is not None:
-            arrowsize = unit.length(self.arrowsize_str, default_type="v")
-            linelength = unit.length(self.linelength_str, default_type="v")
-            arrowsize_pt = unit.topt(arrowsize)
-            linelength_pt = unit.topt(linelength)
-            for point in data.points:
-                xpos, ypos = graph.pos_pt(point[data.xindex], point[data.yindex], xaxis=data.xaxis, yaxis=data.yaxis)
-                if point[data.sizeindex] > self.epsilon:
-                    dx = math.cos(point[data.angleindex]*math.pi/180)
-                    dy = math.sin(point[data.angleindex]*math.pi/180)
-                    x1 = xpos-0.5*dx*linelength_pt*point[data.sizeindex]
-                    y1 = ypos-0.5*dy*linelength_pt*point[data.sizeindex]
-                    x2 = xpos+0.5*dx*linelength_pt*point[data.sizeindex]
-                    y2 = ypos+0.5*dy*linelength_pt*point[data.sizeindex]
-                    graph.stroke(path.line_pt(x1, y1, x2, y2), data.lineattrs +
-                                 [deco.earrow(data.arrowattrs, size=arrowsize*point[data.sizeindex])])
+    def drawpoints(self, points, graph, styledata):
+        if styledata.lineattrs is not None and styledata.arrowattrs is not None:
+            linelength_pt = unit.topt(self.linelength)
+            for point in points:
+                xpos, ypos = graph.pos_pt(point[styledata.xindex], point[styledata.yindex], xaxis=styledata.xaxis, yaxis=styledata.yaxis)
+                if point[styledata.sizeindex] > self.epsilon:
+                    dx = math.cos(point[styledata.angleindex]*math.pi/180)
+                    dy = math.sin(point[styledata.angleindex]*math.pi/180)
+                    x1 = xpos-0.5*dx*linelength_pt*point[styledata.sizeindex]
+                    y1 = ypos-0.5*dy*linelength_pt*point[styledata.sizeindex]
+                    x2 = xpos+0.5*dx*linelength_pt*point[styledata.sizeindex]
+                    y2 = ypos+0.5*dy*linelength_pt*point[styledata.sizeindex]
+                    graph.stroke(path.line_pt(x1, y1, x2, y2), styledata.lineattrs +
+                                 [deco.earrow(styledata.arrowattrs, size=self.arrowsize*point[styledata.sizeindex])])
 
 
 class rect(_style):
@@ -555,46 +625,46 @@ class rect(_style):
     def __init__(self, palette=color.palette.Gray):
         self.palette = palette
 
-    def setdata(self, graph, columns, data):
+    def setdata(self, graph, columns, styledata):
         if len(graph.axisnames) != 2:
             raise TypeError("arrow style restricted on two-dimensional graphs")
         columns = columns.copy()
-        data.xaxis, data.xminindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)min$" % graph.axisnames[0]))
-        data.yaxis, data.yminindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)min$" % graph.axisnames[1]))
-        xaxis, data.xmaxindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)max$" % graph.axisnames[0]))
-        yaxis, data.ymaxindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)max$" % graph.axisnames[1]))
-        if xaxis != data.xaxis or yaxis != data.yaxis:
+        styledata.xaxis, styledata.xminindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)min$" % graph.axisnames[0]))
+        styledata.yaxis, styledata.yminindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)min$" % graph.axisnames[1]))
+        xaxis, styledata.xmaxindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)max$" % graph.axisnames[0]))
+        yaxis, styledata.ymaxindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)max$" % graph.axisnames[1]))
+        if xaxis != styledata.xaxis or yaxis != styledata.yaxis:
             raise ValueError("min/max values should use the same axes")
-        data.colorindex = columns["color"]
+        styledata.colorindex = columns["color"]
         del columns["color"]
         return columns
 
-    def selectstyle(self, selectindex, selecttotal, data):
+    def selectstyle(self, selectindex, selecttotal, styledata):
         pass
 
-    def adjustaxes(self, columns, data):
-        if data.xminindex in columns:
-            data.xaxis.adjustrange(data.points, data.xminindex)
-        if data.xmaxindex in columns:
-            data.xaxis.adjustrange(data.points, data.xmaxindex)
-        if data.yminindex in columns:
-            data.yaxis.adjustrange(data.points, data.yminindex)
-        if data.ymaxindex in columns:
-            data.yaxis.adjustrange(data.points, data.ymaxindex)
+    def adjustaxes(self, points, columns, styledata):
+        if styledata.xminindex in columns:
+            styledata.xaxis.adjustrange(points, styledata.xminindex)
+        if styledata.xmaxindex in columns:
+            styledata.xaxis.adjustrange(points, styledata.xmaxindex)
+        if styledata.yminindex in columns:
+            styledata.yaxis.adjustrange(points, styledata.yminindex)
+        if styledata.ymaxindex in columns:
+            styledata.yaxis.adjustrange(points, styledata.ymaxindex)
 
-    def drawpoints(self, graph, data):
+    def drawpoints(self, points, graph, styledata):
         # TODO: bbox shortcut
         c = graph.insert(canvas.canvas())
         lastcolorvalue = None
-        for point in data.points:
+        for point in points:
             try:
-                xvmin = data.xaxis.convert(point[data.xminindex])
-                xvmax = data.xaxis.convert(point[data.xmaxindex])
-                yvmin = data.yaxis.convert(point[data.yminindex])
-                yvmax = data.yaxis.convert(point[data.ymaxindex])
-                colorvalue = point[data.colorindex]
+                xvmin = styledata.xaxis.convert(point[styledata.xminindex])
+                xvmax = styledata.xaxis.convert(point[styledata.xmaxindex])
+                yvmin = styledata.yaxis.convert(point[styledata.yminindex])
+                yvmax = styledata.yaxis.convert(point[styledata.ymaxindex])
+                colorvalue = point[styledata.colorindex]
                 if colorvalue != lastcolorvalue:
-                    color = self.palette.getcolor(point[data.colorindex])
+                    color = self.palette.getcolor(point[styledata.colorindex])
             except:
                 continue
             if ((xvmin < 0 and xvmax < 0) or (xvmin > 1 and xvmax > 1) or
@@ -637,7 +707,7 @@ class bar(_style):
         self.subnames = subnames
         self.epsilon = epsilon
 
-    def setdata(self, graph, columns, data):
+    def setdata(self, graph, columns, styledata):
         # TODO: remove limitation to 2d graphs
         if len(graph.axisnames) != 2:
             raise TypeError("arrow style currently restricted on two-dimensional graphs")
@@ -647,106 +717,106 @@ class bar(_style):
         if (xvalue is None and yvalue is None) or (xvalue is not None and yvalue is not None):
             raise TypeError("must specify exactly one value axis")
         if xvalue is not None:
-            data.valuepos = 0
-            data.nameaxis, data.nameindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)name$" % graph.axisnames[1]))
-            data.valueaxis = xvalue[0]
-            data.valueindices = [xvalue[1]]
+            styledata.valuepos = 0
+            styledata.nameaxis, styledata.nameindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)name$" % graph.axisnames[1]))
+            styledata.valueaxis = xvalue[0]
+            styledata.valueindices = [xvalue[1]]
         else:
-            data.valuepos = 1
-            data.nameaxis, data.nameindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)name$" % graph.axisnames[0]))
-            data.valueaxis = yvalue[0]
-            data.valueindices = [yvalue[1]]
+            styledata.valuepos = 1
+            styledata.nameaxis, styledata.nameindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)name$" % graph.axisnames[0]))
+            styledata.valueaxis = yvalue[0]
+            styledata.valueindices = [yvalue[1]]
         i = 1
         while 1:
             try:
-                valueaxis, valueindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)stack%i$" % (graph.axisnames[data.valuepos], i)))
+                valueaxis, valueindex = _style.setdatapattern(self, graph, columns, re.compile(r"(%s([2-9]|[1-9][0-9]+)?)stack%i$" % (graph.axisnames[styledata.valuepos], i)))
             except:
                 break
-            if data.valueaxis != valueaxis:
+            if styledata.valueaxis != valueaxis:
                 raise ValueError("different value axes for stacked bars")
-            data.valueindices.append(valueindex)
+            styledata.valueindices.append(valueindex)
             i += 1
         return columns
 
-    def selectstyle(self, selectindex, selecttotal, data):
+    def selectstyle(self, selectindex, selecttotal, styledata):
         if selectindex:
-            data.frompathattrs = None
+            styledata.frompathattrs = None
         else:
-            data.frompathattrs = self.defaultfrompathattrs + self.frompathattrs
+            styledata.frompathattrs = self.defaultfrompathattrs + self.frompathattrs
         if selecttotal > 1:
             if self.barattrs is not None:
-                data.barattrs = attr.selectattrs(self.defaultbarattrs + self.barattrs, selectindex, selecttotal)
+                styledata.barattrs = attr.selectattrs(self.defaultbarattrs + self.barattrs, selectindex, selecttotal)
             else:
-                data.barattrs = None
+                styledata.barattrs = None
         else:
-            data.barattrs = self.defaultbarattrs + self.barattrs
-        data.selectindex = selectindex
-        data.selecttotal = selecttotal
-        if data.selecttotal != 1 and self.subnames is not None:
+            styledata.barattrs = self.defaultbarattrs + self.barattrs
+        styledata.selectindex = selectindex
+        styledata.selecttotal = selecttotal
+        if styledata.selecttotal != 1 and self.subnames is not None:
             raise ValueError("subnames not allowed when iterating over bars")
 
-    def adjustaxes(self, columns, data):
-        if data.nameindex in columns:
-            if data.selecttotal == 1:
-                data.nameaxis.adjustrange(data.points, data.nameindex, subnames=self.subnames)
+    def adjustaxes(self, points, columns, styledata):
+        if styledata.nameindex in columns:
+            if styledata.selecttotal == 1:
+                styledata.nameaxis.adjustrange(points, styledata.nameindex, subnames=self.subnames)
             else:
-                for i in range(data.selecttotal):
-                    data.nameaxis.adjustrange(data.points, data.nameindex, subnames=[i])
-        for valueindex in data.valueindices:
+                for i in range(styledata.selecttotal):
+                    styledata.nameaxis.adjustrange(points, styledata.nameindex, subnames=[i])
+        for valueindex in styledata.valueindices:
             if valueindex in columns:
-                data.valueaxis.adjustrange(data.points, valueindex)
+                styledata.valueaxis.adjustrange(points, valueindex)
 
-    def drawpoints(self, graph, data):
+    def drawpoints(self, points, graph, styledata):
         if self.fromvalue is not None:
-            vfromvalue = data.valueaxis.convert(self.fromvalue)
+            vfromvalue = styledata.valueaxis.convert(self.fromvalue)
             if vfromvalue < -self.epsilon:
                 vfromvalue = 0
             if vfromvalue > 1 + self.epsilon:
                 vfromvalue = 1
-            if data.frompathattrs is not None and vfromvalue > self.epsilon and vfromvalue < 1 - self.epsilon:
-                if data.valuepos:
+            if styledata.frompathattrs is not None and vfromvalue > self.epsilon and vfromvalue < 1 - self.epsilon:
+                if styledata.valuepos:
                     p = graph.vgeodesic(0, vfromvalue, 1, vfromvalue)
                 else:
                     p = graph.vgeodesic(vfromvalue, 0, vfromvalue, 1)
-                graph.stroke(p, data.frompathattrs)
+                graph.stroke(p, styledata.frompathattrs)
         else:
             vfromvalue = 0
-        l = len(data.valueindices)
+        l = len(styledata.valueindices)
         if l > 1:
             barattrslist = []
             for i in range(l):
-                barattrslist.append(attr.selectattrs(data.barattrs, i, l))
+                barattrslist.append(attr.selectattrs(styledata.barattrs, i, l))
         else:
-            barattrslist = [data.barattrs]
-        for point in data.points:
+            barattrslist = [styledata.barattrs]
+        for point in points:
             vvaluemax = vfromvalue
-            for valueindex, barattrs in zip(data.valueindices, barattrslist):
+            for valueindex, barattrs in zip(styledata.valueindices, barattrslist):
                 vvaluemin = vvaluemax
                 try:
-                    vvaluemax = data.valueaxis.convert(point[valueindex])
+                    vvaluemax = styledata.valueaxis.convert(point[valueindex])
                 except:
                     continue
 
-                if data.selecttotal == 1:
+                if styledata.selecttotal == 1:
                     try:
-                        vnamemin = data.nameaxis.convert((point[data.nameindex], 0))
+                        vnamemin = styledata.nameaxis.convert((point[styledata.nameindex], 0))
                     except:
                         continue
                     try:
-                        vnamemax = data.nameaxis.convert((point[data.nameindex], 1))
+                        vnamemax = styledata.nameaxis.convert((point[styledata.nameindex], 1))
                     except:
                         continue
                 else:
                     try:
-                        vnamemin = data.nameaxis.convert((point[data.nameindex], data.selectindex, 0))
+                        vnamemin = styledata.nameaxis.convert((point[styledata.nameindex], styledata.selectindex, 0))
                     except:
                         continue
                     try:
-                        vnamemax = data.nameaxis.convert((point[data.nameindex], data.selectindex, 1))
+                        vnamemax = styledata.nameaxis.convert((point[styledata.nameindex], styledata.selectindex, 1))
                     except:
                         continue
 
-                if data.valuepos:
+                if styledata.valuepos:
                     p = graph.vgeodesic(vnamemin, vvaluemin, vnamemin, vvaluemax)
                     p.append(graph.vgeodesic_el(vnamemin, vvaluemax, vnamemax, vvaluemax))
                     p.append(graph.vgeodesic_el(vnamemax, vvaluemax, vnamemax, vvaluemin))
@@ -761,10 +831,10 @@ class bar(_style):
                 if barattrs is not None:
                     graph.fill(p, barattrs)
 
-    def key_pt(self, c, x_pt, y_pt, width_pt, height_pt, data):
-        l = len(data.valueindices)
+    def key_pt(self, c, x_pt, y_pt, width_pt, height_pt, styledata):
+        l = len(styledata.valueindices)
         if l > 1:
             for i in range(l):
-                c.fill(path.rect_pt(x_pt+i*width_pt/l, y_pt, width_pt/l, height_pt), attr.selectattrs(data.barattrs, i, l))
+                c.fill(path.rect_pt(x_pt+i*width_pt/l, y_pt, width_pt/l, height_pt), attr.selectattrs(styledata.barattrs, i, l))
         else:
-            c.fill(path.rect_pt(x_pt, y_pt, width_pt, height_pt), data.barattrs)
+            c.fill(path.rect_pt(x_pt, y_pt, width_pt, height_pt), styledata.barattrs)

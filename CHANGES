@@ -1,10 +1,6 @@
 PyX
 
 TODO:
-  - graph module
-    - common bboxes for different graphs
-    - exceptions in drawsymbol & friends...
-    - 3d graphs, circular graphs
   - style module:
     - default patterns
     - make dash length available
@@ -15,14 +11,25 @@ TODO:
     - messageparser for size differences at the end: Warning not Exception
     - messageparser for overfull/underfull vbox/hbox: Warning not Exception
     - newline removal when not disturbing texmessages only
-  - mathtree module:
-     - consider rewrite using the python compiler module
+  - graph.graph module
+    - common bboxes for different graphs
+    - 3d graphs, circular graphs
+    - axis painter labelattrs=None + automatic axis partitioning leads to no valid partitioning
+  - graph.style and graph.data modules
+    - exceptions in drawsymbol & friends...
+    - caution: another reorganization round is in progress
+      (its goal is to make graph styles combinable which will also
+      split up the style code in smaller parts -- those will then be
+      easier to substitute by inheritance)
   - graph.data module:
     - use csv module (new in 2.3)
     - Check for "inf" and "nan" in datafiles.
       (When plotted, the graph does not complain, but the postscript will be broken)
+  - graph.style module:
+    - add styles using curves instead of lines
+    - add "steps" style for histogram-like plots
   - canvas module:
-    - multi page PostScript output
+    - finish multi page PostScript output
     - contructor should only take a texrunner keyword argument
     - set method???
     - PDF support
@@ -31,27 +38,25 @@ TODO:
     - support modification of existing styles via __call__
   - bbox module:
     - height -> getheight, ...
-  - attr module:
-    - TODO: general documentation about attributes, clearing, merging?
-    - TODO: general documentation about changeable attributes?
-  - unit module:
-    - what about unit.cm() -> unit.cm, ...
-    - maybe we should never convert implicitly into visual/width, etc. lengths
-    - check that we always return the appropriate length, i.e., not
-      too often true
   - mathtree:
     - might be moved into the graph
     - perform calc by means of Python itself (see eval code in graph.data, but
       we should use compiled code instead of eval)
   - deco module:
     - think hard about different paths in decoratedpath class
-    - adjust parameters of cycloid and smoothed
-      AW suggests to use cycloid with default curvesperloop=5.
   - dvifile module:
     - support single-character mode
   - path module:
     - arclentoparam should raise an exception when the arclen is out of range
-    - use _pt for variable names 
+    - there are two epsilons related to normpath, one in the normpath and
+      one in the subnormpath; while the later seems a clear feature, the first
+      might be a misdesign; a solution is still pending ...
+  - color module:
+    - what should we do for palette when only one entry
+  - connector module:
+    - is the early conversion with unit.topt unit-modification-save?
+  - deformer module:
+    - better names for the helper functions ?
 
   Documentation:
     - path module:
@@ -61,13 +66,83 @@ TODO:
       - cycloid decorator
       - smoothed decorator
     - graphics section:
-      Attributes and changeable attributes should be explained in a
-      central place.
+      Attributes (clearing merging ) and changeable attributes should be 
+      explained at a central place.
     - section titles: "Axes" -> "Axes - module axis" or similar
+    - box module:
+      - linealign and circlealign
+    - unit module
 
   FAQ:
     - describe creation and modification (inplace and ``modify by new'') of
       graph data
+
+0.7 (xxxx/xx/xx):
+  - bitmap module:
+    - new module for inclusion of bitmap images
+  - path module:
+    - names of local and member variables now follow the naming convention of
+      having a _pt suffix when containing lengths in points
+  - bbox module:
+    - names of local and member variables now follow the naming convention of
+      having a _pt suffix when containing lengths in points
+    - enlarge was misspelled as enlarged
+    - renamed _bbox -> bbox_pt
+    - new bbox method center, which returns the coordinates of the center
+      of the bbox
+    - enlarge and enlarged do no longer interprete unqualified lengths as
+      being of type visual
+  - unit module:
+    - unit.cm, unit.t_cm, etc. are no longer sub classes but instances
+      of length
+    - never convert implicitly into visual/width, etc. lengths (this is more
+      about usage of the unit module in various other modules) (TODO: update
+      documentation)
+    - support for string initialization removed
+    - support for initialisation with other length removed
+  - canvas module:
+    - added new classes page and document for multipage PostScript output
+  - style module:
+    - decrease interval for dotted and dash-dotted lines for better visual
+      appearance
+  - setup.py and distribution:
+    - create siteconfig on install to store positions of the shared data
+      and the global pyxrc
+  - graph modules:
+    - enum -> num renaming
+    - allow for horizontally and vertically centered graph key alignment (TODO: documentation)
+    - fix bug that graph was not finished automatically when a bbox was specified
+      manually (reported by David Barton)
+  - path module:
+    - pathel -> pathitem, etc. renaming
+  - deformer module: new
+    - moved cycloid and smoothed from deco into deformer
+  - bbox module:
+    - handle "BoundingBox: (atend)" (cf. bug #945621)
+    - kpsearch option to search for file using the kpathsea library (contributed by Michael Gruber)
+
+
+0.6.x (????/??/??):
+   - graph/axis module:
+     - fix errorbar range adjustment
+
+
+0.6.3 (2004/04/27):
+   - graph module:
+     - fix drawing with background
+     - fix insertion of a zero length path when the whole line is outside
+       the valid axis range (reported by Marko Vendelin)
+   - distribution:
+     - include source for faq and manual
+     - distribute the pdf instead of postscript (manual, faq, examples)
+
+0.6.2 (2004/04/07):
+  - graph module:
+    - fixed title=None + graph key issue reported by Gabriel Vasseur
+    - graph.axis.painter.plain -> graph.axis.painter.regular
+      (as it was in parts of the documentation already)
+    - changeable-gridattrs-become-None-bug fixed
+    - graph style cutting outside lines (double-)fixed
 
 
 0.6.1 (2004/03/31):

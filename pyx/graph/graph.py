@@ -139,7 +139,7 @@ class graphxy(canvas.canvas):
 
     axisnames = "x", "y"
 
-    def plot(self, data, style=None):
+    def plot(self, data, styles=None):
         if self.haslayout:
             raise RuntimeError("layout setup was already performed")
         try:
@@ -149,14 +149,15 @@ class graphxy(canvas.canvas):
             usedata = [data]
         else:
             usedata = data
-        if style is None:
+        if styles is None:
+            raise RuntimeError() # TODO: default styles handling ...
             for d in usedata:
                 if style is None:
                     style = d.defaultstyle
                 elif style != d.defaultstyle:
                     raise RuntimeError("defaultstyles differ")
         for d in usedata:
-            d.setstyle(self, style)
+            d.setstyles(self, styles)
             self.plotdata.append(d)
         return data
 
@@ -229,19 +230,27 @@ class graphxy(canvas.canvas):
         if not self.removedomethod(self.dolayout): return
 
         # count the usage of styles and perform selects
+        # TODO: move it into the styles
         styletotal = {}
         for data in self.plotdata:
-            try:
-                styletotal[id(data.style)] += 1
-            except:
-                styletotal[id(data.style)] = 1
+            for style in data.styles:
+                try:
+                    styletotal[id(style)] += 1
+                except:
+                    styletotal[id(style)] = 1
         styleindex = {}
         for data in self.plotdata:
-            try:
-                styleindex[id(data.style)] += 1
-            except:
-                styleindex[id(data.style)] = 0
-            data.selectstyle(self, styleindex[id(data.style)], styletotal[id(data.style)])
+            for style in data.styles:
+                try:
+                    styleindex[id(style)] += 1
+                except:
+                    styleindex[id(style)] = 0
+            index = styleindex[id(data.styles[0])]
+            total = styletotal[id(data.styles[0])]
+            for style in data.styles[1:]:
+                if index != styleindex[id(style)] or total != styletotal[id(style)]:
+                    raise RuntimeError("inconsistent style modification not yet supported")
+            data.selectstyle(self, index, total)
 
         # adjust the axes ranges
         for step in range(3):
@@ -249,7 +258,6 @@ class graphxy(canvas.canvas):
                 data.adjustaxes(self, step)
 
         # finish all axes
-        axesdist = unit.length(self.axesdist_str, default_type="v")
         XPattern = re.compile(r"%s([2-9]|[1-9][0-9]+)?$" % self.axisnames[0])
         YPattern = re.compile(r"%s([2-9]|[1-9][0-9]+)?$" % self.axisnames[1])
         xaxisextents = [0, 0]
@@ -265,7 +273,7 @@ class graphxy(canvas.canvas):
             num3 = 2 * (num % 2) - 1 # x1 -> 1, x2 -> -1, x3 -> 1, x4 -> -1, ...
             if XPattern.match(key):
                 if needxaxisdist[num2]:
-                    xaxisextents[num2] += axesdist
+                    xaxisextents[num2] += self.axesdist
                 self.axespos[key] = lineaxisposlinegrid(self.axes[key].convert,
                                                         self.xpos,
                                                         self.ypos + num2*self.height - num3*xaxisextents[num2],
@@ -286,7 +294,7 @@ class graphxy(canvas.canvas):
                     self.xvtickdirection = self.axespos[key].vtickdirection
             elif YPattern.match(key):
                 if needyaxisdist[num2]:
-                    yaxisextents[num2] += axesdist
+                    yaxisextents[num2] += self.axesdist
                 self.axespos[key] = lineaxisposlinegrid(self.axes[key].convert,
                                                         self.xpos + num2*self.width - num3*yaxisextents[num2],
                                                         self.ypos,
@@ -321,7 +329,7 @@ class graphxy(canvas.canvas):
         if not self.removedomethod(self.dobackground): return
         if self.backgroundattrs is not None:
             self.draw(path.rect_pt(self.xpos_pt, self.ypos_pt, self.width_pt, self.height_pt),
-                      helper.ensurelist(self.backgroundattrs))
+                      self.backgroundattrs)
 
     def doaxes(self):
         self.dolayout()
@@ -341,26 +349,16 @@ class graphxy(canvas.canvas):
         if self.key is not None:
             c = self.key.paint(self.plotdata)
             bbox = c.bbox()
-            if self.key.right:
-                if self.key.hinside:
-                    x = self.xpos_pt + self.width_pt - bbox.urx - self.key.hdist_pt
-                else:
-                    x = self.xpos_pt + self.width_pt - bbox.llx + self.key.hdist_pt
-            else:
-                if self.key.hinside:
-                    x = self.xpos_pt - bbox.llx + self.key.hdist_pt
-                else:
-                    x = self.xpos_pt - bbox.urx - self.key.hdist_pt
-            if self.key.top:
-                if self.key.vinside:
-                    y = self.ypos_pt + self.height_pt - bbox.ury - self.key.vdist_pt
-                else:
-                    y = self.ypos_pt + self.height_pt - bbox.lly + self.key.vdist_pt
-            else:
-                if self.key.vinside:
-                    y = self.ypos_pt - bbox.lly + self.key.vdist_pt
-                else:
-                    y = self.ypos_pt - bbox.ury - self.key.vdist_pt
+            def parentchildalign(pmin, pmax, cmin, cmax, pos, dist, inside):
+                ppos = pmin+0.5*(cmax-cmin)+dist+pos*(pmax-pmin-cmax+cmin-2*dist)
+                cpos = 0.5*(cmin+cmax)+(1-inside)*(1-2*pos)*(cmax-cmin+2*dist)
+                return ppos-cpos
+            x = parentchildalign(self.xpos_pt, self.xpos_pt+self.width_pt,
+                                 bbox.llx_pt, bbox.urx_pt,
+                                 self.key.hpos, unit.topt(self.key.hdist), self.key.hinside)
+            y = parentchildalign(self.ypos_pt, self.ypos_pt+self.height_pt,
+                                 bbox.lly_pt, bbox.ury_pt,
+                                 self.key.vpos, unit.topt(self.key.vdist), self.key.vinside)
             self.insert(c, [trafo.translate_pt(x, y)])
 
     def finish(self):
@@ -369,14 +367,14 @@ class graphxy(canvas.canvas):
 
     def initwidthheight(self, width, height, ratio):
         if (width is not None) and (height is None):
-             self.width = unit.length(width)
+             self.width = width
              self.height = (1.0/ratio) * self.width
         elif (height is not None) and (width is None):
-             self.height = unit.length(height)
+             self.height = height
              self.width = ratio * self.height
         else:
-             self.width = unit.length(width)
-             self.height = unit.length(height)
+             self.width = width
+             self.height = height
         self.width_pt = unit.topt(self.width)
         self.height_pt = unit.topt(self.height)
         if self.width_pt <= 0: raise ValueError("width <= 0")
@@ -396,10 +394,10 @@ class graphxy(canvas.canvas):
         self.axes = axes
 
     def __init__(self, xpos=0, ypos=0, width=None, height=None, ratio=goldenmean,
-                 key=None, backgroundattrs=None, axesdist="0.8 cm", **axes):
+                 key=None, backgroundattrs=None, axesdist=0.8*unit.v_cm, **axes):
         canvas.canvas.__init__(self)
-        self.xpos = unit.length(xpos)
-        self.ypos = unit.length(ypos)
+        self.xpos = xpos
+        self.ypos = ypos
         self.xpos_pt = unit.topt(self.xpos)
         self.ypos_pt = unit.topt(self.ypos)
         self.initwidthheight(width, height, ratio)
@@ -408,7 +406,7 @@ class graphxy(canvas.canvas):
         self.axespos = {}
         self.key = key
         self.backgroundattrs = backgroundattrs
-        self.axesdist_str = axesdist
+        self.axesdist = axesdist
         self.plotdata = []
         self.domethods = [self.dolayout, self.dobackground, self.doaxes, self.dodata, self.dokey]
         self.haslayout = 0
@@ -417,6 +415,10 @@ class graphxy(canvas.canvas):
     def bbox(self):
         self.finish()
         return canvas.canvas.bbox(self)
+
+    def prolog(self):
+        self.finish()
+        return canvas.canvas.prolog(self)
 
     def outputPS(self, file):
         self.finish()
@@ -582,7 +584,7 @@ class graphxy(canvas.canvas):
 #     def doaxes(self):
 #         self.dolayout()
 #         if not self.removedomethod(self.doaxes): return
-#         axesdist = unit.topt(unit.length(self.axesdist_str, default_type="v"))
+#         axesdist_pt = unit.topt(self.axesdist)
 #         XPattern = re.compile(r"%s([2-9]|[1-9][0-9]+)?$" % self.axisnames[0])
 #         YPattern = re.compile(r"%s([2-9]|[1-9][0-9]+)?$" % self.axisnames[1])
 #         ZPattern = re.compile(r"%s([2-9]|[1-9][0-9]+)?$" % self.axisnames[2])
@@ -626,7 +628,7 @@ class graphxy(canvas.canvas):
 # 
 #     def __init__(self, tex, xpos=0, ypos=0, width=None, height=None, depth=None,
 #                  phi=30, theta=30, distance=1,
-#                  backgroundattrs=None, axesdist="0.8 cm", **axes):
+#                  backgroundattrs=None, axesdist=0.8*unit.v_cm, **axes):
 #         canvas.canvas.__init__(self)
 #         self.tex = tex
 #         self.xpos = xpos
@@ -655,7 +657,7 @@ class graphxy(canvas.canvas):
 #                     self._distance*math.sin(phi)*math.cos(theta),
 #                     self._distance*math.sin(theta))
 #         self.initaxes(axes)
-#         self.axesdist_str = axesdist
+#         self.axesdist = axesdist
 #         self.backgroundattrs = backgroundattrs
 # 
 #         self.data = []

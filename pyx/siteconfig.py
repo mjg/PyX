@@ -2,8 +2,7 @@
 # -*- coding: ISO-8859-1 -*-
 #
 #
-# Copyright (C) 2002-2004 Jörg Lehmann <joergl@users.sourceforge.net>
-# Copyright (C) 2002-2004 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2004 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -21,23 +20,17 @@
 # along with PyX; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-""" PyX := PostScript + Python + TeX
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# This file configures PyX search paths relative to the current
+# position, e.g. for local usage. When installing PyX via distutils
+# the contents of this file is not copied to the PyX installation.
+# Instead the correct information about the paths from the installation
+# process are used.
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-PyX is a python package for the creation of encapsulated PostScript
-figures. It provides both an abstraction of PostScript and a TeX/LaTeX
-interface. Complex tasks like 2d plots in publication-ready quality
-are build out of these primitives.
+import os
 
-"""
-
-import version
-__version__ = version.version
-
-__all__ = ["attr", "box", "bitmap", "canvas", "color", "connector", "deco", "deformer", "epsfile", "graph", "path",
-           "style", "trafo", "text", "unit"]
-
-
-# automatically import main modules into pyx namespace
-for module in __all__:
-    __import__(module, globals(), locals(), [])
+lfsdir = os.path.join(os.path.dirname(__file__), "lfs")
+sharedir = os.path.join(os.path.dirname(__file__), "..", "contrib")
+pyxrc = os.path.join(os.path.dirname(__file__), "..", "pyxrc")
 
