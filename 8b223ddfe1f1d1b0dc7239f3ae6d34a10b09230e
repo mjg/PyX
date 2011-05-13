@@ -1,0 +1,17 @@
+My PIL is at 1.1.7, python is 2.7.
+
+The error log leading up to that is
+
+  File "/home/mjg/src/pyx/pyx/epsfile.py", line 354, in processPDF
+    b.processPDF(file, writer, context, registry, bbox)
+  File "/home/mjg/src/pyx/pyx/bitmap.py", line 515, in processPDF
+    mode, data, alpha, palettemode, palettedata = self.imagedata(False)
+  File "/home/mjg/src/pyx/pyx/bitmap.py", line 361, in imagedata
+    bands = data.split()
+  File "/usr/lib64/python2.7/site-packages/PIL/Image.py", line 1497, in split
+    if self.im.bands == 1:
+AttributeError: 'NoneType' object has no attribute 'bands'
+
+In fact, the same problem occurs when inserting PIL images with lazy loading.
+One may or may not leave the Image.load() invocation at the user's discretion
+in that case.
