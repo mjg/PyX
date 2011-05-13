@@ -14,4 +14,4 @@ AttributeError: 'NoneType' object has no attribute 'bands'
 
 In fact, the same problem occurs when inserting PIL images with lazy loading.
 One may or may not leave the Image.load() invocation at the user's discretion
-in that case.
+in that case. One may actually claim that it's a matter of PIL being too lazy...
