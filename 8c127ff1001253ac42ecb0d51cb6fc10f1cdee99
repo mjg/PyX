@@ -1,0 +1,6 @@
+This is RFC because one might want to scale differently, so that
+poscorr=1 puts the endtips of the arrow at pos (i.e. without taking the
+constriction into account).
+
+The user could always fiddle with pos directly but that breaks as soon
+as the arclen changes.
