@@ -431,20 +431,23 @@ class arrow(deco, attr.attr):
 
     """arrow is a decorator which adds an arrow to either side of the path"""
 
-    def __init__(self, attrs=[], pos=1, reversed=0, size=_base, angle=45, constriction=0.8):
+    def __init__(self, attrs=[], pos=1, poscorr=0, reversed=0, size=_base, angle=45, constriction=0.8):
         self.attrs = attr.mergeattrs([style.linestyle.solid, filled] + attrs)
         attr.checkattrs(self.attrs, [deco, style.fillstyle, style.strokestyle])
         self.pos = pos
+        self.poscorr = poscorr
         self.reversed = reversed
         self.size = size
         self.angle = angle
         self.constriction = constriction
 
-    def __call__(self, attrs=None, pos=None, reversed=None, size=None, angle=None, constriction=_marker):
+    def __call__(self, attrs=None, pos=None, poscorr=None, reversed=None, size=None, angle=None, constriction=_marker):
         if attrs is None:
             attrs = self.attrs
         if pos is None:
             pos = self.pos
+        if poscorr is None:
+            poscorr = self.poscorr
         if reversed is None:
             reversed = self.reversed
         if size is None:
@@ -453,11 +456,12 @@ class arrow(deco, attr.attr):
             angle = self.angle
         if constriction is _marker:
             constriction = self.constriction
-        return arrow(attrs=attrs, pos=pos, reversed=reversed, size=size, angle=angle, constriction=constriction)
+        return arrow(attrs=attrs, pos=pos, poscorr=poscorr, reversed=reversed, size=size, angle=angle, constriction=constriction)
 
     def decorate(self, dp, texrunner):
         dp.ensurenormpath()
         anormpath = dp.path
+	arclen = anormpath.arclen()
 
         # calculate absolute arc length of constricition
         # Note that we have to correct this length because the arrowtemplates are rotated
@@ -472,17 +476,22 @@ class arrow(deco, attr.attr):
             constrictionlen = self.size * 1 * math.cos(math.radians(self.angle/2.0))
             arrowheadconstrictionlen = None
 
-        arclenfrombegin = self.pos * anormpath.arclen()
         direction = self.reversed and -1 or 1
+	selfpos = self.pos
+	if self.poscorr:
+            selfpos += direction * self.poscorr * constrictionlen / arclen
+            selfpos = max(0, min(1, selfpos))
+
+        arclenfrombegin = selfpos * arclen
         arrowhead = _arrowhead(anormpath, arclenfrombegin, direction, self.size, self.angle, arrowheadconstrictionlen)
 
         # add arrowhead to decoratedpath
         dp.ornaments.draw(arrowhead, self.attrs)
 
         # exlude part of the path from stroking when the arrow is strictly at the begin or the end
-        if self.pos == 0 and self.reversed:
+        if selfpos == 0 and self.reversed:
             dp.excluderange(0, min(self.size, constrictionlen))
-        elif self.pos == 1 and not self.reversed:
+        elif selfpos == 1 and not self.reversed:
             dp.excluderange(anormpath.end() - min(self.size, constrictionlen), anormpath.end())
 
 arrow.clear = attr.clearclass(arrow)
