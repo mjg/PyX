@@ -1,13 +1,17 @@
 In fact, the version in r3201 also leaves an open file handle around which
-is not used later on. We cannot reuse it in PSwriter() since that may be called
-more than once, but cleses the handle.
+is not used later on (the seek() is superfluous).
+
+We cannot reuse it in PSwriter() since that may be called more than once,
+but closes the handle.
 
 With the current design of filelocator (returning fd's), I think there are only
 two possibilities:
 
-* Multiple filelocator calls (like in my submission). This closes fds properly
-  (I may have missed a close(), though).
+* Multiple filelocator calls (like in my submission). This closes fds properly.
+  I may have missed a close(), though: linefilereader.close() is defined but never
+  used (neither before nor after these patches).
 
 * Store the fd in self.file and don't close it.
 
-r3201 opens the
+At least with r3201+this fix (or the original submission) it works. But we should
+probably close instead of seek after _readbb.
