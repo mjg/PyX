@@ -1,0 +1,13 @@
+In fact, the version in r3201 also leaves an open file handle around which
+is not used later on. We cannot reuse it in PSwriter() since that may be called
+more than once, but cleses the handle.
+
+With the current design of filelocator (returning fd's), I think there are only
+two possibilities:
+
+* Multiple filelocator calls (like in my submission). This closes fds properly
+  (I may have missed a close(), though).
+
+* Store the fd in self.file and don't close it.
+
+r3201 opens the
