@@ -1,0 +1,14 @@
+EPS-file inclusion and bounding boxes
+
+In this example we first generate an EPS-file and write it out.
+Reading an EPS-file with `epsfile.epsfile()` gives you a canvas which can be
+inserted just like other canvases. Note how you can scale the EPS when it is read.
+
+Like many others, PyX writes out high resolution bounding boxes.
+By default it reads the normal bounding boxes, but using `hiresbbox=1` you can
+instruct PyX to use the high resolution version. Note the difference between the
+middle (low res bbox) and right (high res bbox) boxes.
+
+!The difference between left (canvas bbox) and right (high res eps bbox) is due to
+fact that PyX can take into account the width of the line only for the bounding
+box calculation during the output of the EPS.
