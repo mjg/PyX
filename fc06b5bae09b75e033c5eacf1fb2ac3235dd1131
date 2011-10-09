@@ -1,0 +1,3 @@
+v2 has singlecharmode as a parameter to text() rather than the texrunner.
+The drawback is that ensuredvicanvas() and finishdvi() need that parameter
+also, or else the last few characters come out wrong.
