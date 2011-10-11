@@ -1,0 +1,5 @@
+Here's one for the gallery ;)
+
+There may be better ways to get at a text font using the file locator,
+but then the encoding may be an issue. I don't know any simple way to get at
+the outline path of "\PyX" rather than "PyX".
