@@ -226,5 +226,5 @@ man_pages = [
 
 # -- Other options  ------------------------------------------------------------
 
-mathjax_path = 'http://mathjax.connectmv.com/MathJax.js'
+mathjax_path = 'http://mathjax.connectmv.com/MathJax.js?config=default'
 todo_include_todos = True
