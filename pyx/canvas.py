@@ -1,9 +1,8 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
-# Copyright (C) 2002-2005 Jörg Lehmann <joergl@users.sourceforge.net>
-# Copyright (C) 2002-2005 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2002-2006 Jörg Lehmann <joergl@users.sourceforge.net>
+# Copyright (C) 2002-2006 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -26,60 +25,16 @@
 A canvas holds a collection of all elements and corresponding attributes to be
 displayed. """
 
-#
-# canvas item
-#
-
-class canvasitem:
-
-    """Base class for everything which can be inserted into a canvas"""
-
-    def bbox(self):
-        """return bounding box of canvasitem or None"""
-        pass
-    
-    def registerPS(self, registry):
-        """register resources needed for the canvasitem in the PS registry"""
-        pass
-
-    def registerPDF(self, registry):
-        """register resources needed for the canvasitem in the PDF registry"""
-        pass
-
-    def outputPS(self, file, writer, context):
-        """write PS code corresponding to canvasitem to file
-
-        - file has to provide a write(string) method
-        - writer is the PSwriter used for the output
-        - context is used for keeping track of the graphics state, in particular
-        for the emulation of PS behaviour regarding fill and stroke styles, for
-        keeping track of the currently selected font as well as of text regions.
-        """
-        pass
-
-    def outputPDF(self, file, writer, context):
-        """write PDF code corresponding to canvasitem to file using the given writer
-        and context.
-
-        - file has to provide a write(string) method
-        - writer contains properties like whether streamcompression is used.
-        - context is used for keeping track of the graphics state, in particular
-        for the emulation of PS behaviour regarding fill and stroke styles, for
-        keeping track of the currently selected font as well as of text regions.
-        """
-        pass
-
-
-
-
-import attr, deco, deformer, document, style, trafo, type1font
+import os
+import attr, canvasitem, deco, deformer, document, font, style, trafo
+import bbox as bboxmodule
 
 
 #
 # clipping class
 #
 
-class clip(canvasitem):
+class clip(canvasitem.canvasitem):
 
     """class for use in canvas constructor which clips to a path"""
 
@@ -89,19 +44,19 @@ class clip(canvasitem):
 
     def bbox(self):
         # as a canvasitem a clipping path has NO influence on the bbox...
-        return None
+        return bboxmodule.empty()
 
     def clipbbox(self):
         # ... but for clipping, we nevertheless need the bbox
         return self.path.bbox()
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         file.write("newpath\n")
-        self.path.outputPS(file, writer, context)
+        self.path.outputPS(file, writer)
         file.write("clip\n")
 
-    def outputPDF(self, file, writer, context):
-        self.path.outputPDF(file, writer, context)
+    def processPDF(self, file, writer, context, registry, bbox):
+        self.path.outputPDF(file, writer)
         file.write("W n\n")
 
 
@@ -109,15 +64,15 @@ class clip(canvasitem):
 # general canvas class
 #
 
-class _canvas(canvasitem):
+class _canvas(canvasitem.canvasitem):
 
     """a canvas holds a collection of canvasitems"""
 
-    def __init__(self, attrs=[], texrunner=None):
+    def __init__(self, attrs=None, texrunner=None):
 
         """construct a canvas
 
-        The canvas can be modfied by supplying args, which have
+        The canvas can be modfied by supplying a list of attrs, which have
         to be instances of one of the following classes:
          - trafo.trafo (leading to a global transformation of the canvas)
          - canvas.clip (clips the canvas)
@@ -134,6 +89,8 @@ class _canvas(canvasitem):
         self.items     = []
         self.trafo     = trafo.trafo()
         self.clipbbox  = None
+        if attrs is None:
+            attrs = []
         if texrunner is not None:
             self.texrunner = texrunner
         else:
@@ -141,18 +98,21 @@ class _canvas(canvasitem):
             import text
             self.texrunner = text.defaulttexrunner
 
-        for attr in attrs:
-            if isinstance(attr, trafo.trafo_pt):
-                self.trafo = self.trafo*attr
-                self.items.append(attr)
-            elif isinstance(attr, clip):
+        attr.checkattrs(attrs, [trafo.trafo_pt, clip, style.strokestyle, style.fillstyle])
+        # We have to reverse the trafos such that the PostScript concat operators
+        # are in the right order. Correspondingly, we below multiply the current self.trafo
+        # from the right. 
+        # Note that while for the stroke and fill styles the order doesn't matter at all, 
+        # this is not true for the clip operation.
+        for aattr in attrs[::-1]:
+            if isinstance(aattr, trafo.trafo_pt):
+                self.trafo = self.trafo * aattr
+            elif isinstance(aattr, clip):
                 if self.clipbbox is None:
-                    self.clipbbox = attr.clipbbox().transformed(self.trafo)
+                    self.clipbbox = aattr.clipbbox().transformed(self.trafo)
                 else:
-                    self.clippbox *= attr.clipbbox().transformed(self.trafo)
-                self.items.append(attr)
-            else:
-                self.set([attr])
+                    self.clippbox *= aattr.clipbbox().transformed(self.trafo)
+            self.items.append(aattr)
 
     def __len__(self):
         return len(self.items)
@@ -161,60 +121,63 @@ class _canvas(canvasitem):
         return self.items[i]
 
     def bbox(self):
-        """returns bounding box of canvas"""
-        obbox = None
+        """returns bounding box of canvas
+
+        Note that this bounding box doesn't take into account the linewidths, so
+        is less accurate than the one used when writing the output to a file.
+        """
+        obbox = bboxmodule.empty()
         for cmd in self.items:
-            abbox = cmd.bbox()
-            if obbox is None:
-                obbox = abbox
-            elif abbox is not None:
-                obbox += abbox
+            obbox += cmd.bbox()
 
         # transform according to our global transformation and
         # intersect with clipping bounding box (which has already been
         # transformed in canvas.__init__())
-        if obbox is not None and self.clipbbox is not None:
-            return obbox.transformed(self.trafo)*self.clipbbox
-        elif obbox is not None:
-            return obbox.transformed(self.trafo)
-        else:
-            return self.clipbbox
+        obbox.transform(self.trafo)
+        if self.clipbbox is not None:
+            obbox *= self.clipbbox
+        return obbox
 
-    def registerPS(self, registry):
-        for item in self.items:
-            item.registerPS(registry)
-
-    def registerPDF(self, registry):
-        for item in self.items:
-            item.registerPDF(registry)
-
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         context = context()
         if self.items:
             file.write("gsave\n")
+            nbbox = bboxmodule.empty()
             for item in self.items:
-                item.outputPS(file, writer, context)
+                item.processPS(file, writer, context, registry, nbbox)
+            # update bounding bbox
+            nbbox.transform(self.trafo)
+            if self.clipbbox is not None:
+                nbbox *= self.clipbbox
+            bbox += nbbox
             file.write("grestore\n")
 
-    def outputPDF(self, file, writer, context):
+    def processPDF(self, file, writer, context, registry, bbox):
         context = context()
         if self.items:
             file.write("q\n") # gsave
+            nbbox = bboxmodule.empty()
             for item in self.items:
-                if isinstance(item, type1font.text_pt):
-                    if not context.textregion:
-                        file.write("BT\n")
-                        context.textregion = 1
-                else:
-                    if context.textregion:
-                        file.write("ET\n")
-                        context.textregion = 0
-                        context.font = None
-                item.outputPDF(file, writer, context)
+                if not writer.textaspath:
+                    if isinstance(item, font.text_pt):
+                        if not context.textregion:
+                            file.write("BT\n")
+                            context.textregion = 1
+                    else:
+                        if context.textregion:
+                            file.write("ET\n")
+                            context.textregion = 0
+                            context.selectedfont = None
+                item.processPDF(file, writer, context, registry, nbbox)
             if context.textregion:
                 file.write("ET\n")
                 context.textregion = 0
-                context.font = None
+                context.selectedfont = None
+            # update bounding bbox
+            nbbox.transform(self.trafo)
+            if self.clipbbox is not None:
+                nbbox *= self.clipbbox
+            bbox += nbbox
             file.write("Q\n") # grestore
 
     def insert(self, item, attrs=None):
@@ -226,8 +189,8 @@ class _canvas(canvasitem):
 
         """
 
-        if not isinstance(item, canvasitem):
-            raise RuntimeError("only instances of base.canvasitem can be inserted into a canvas")
+        if not isinstance(item, canvasitem.canvasitem):
+            raise RuntimeError("only instances of canvasitem.canvasitem can be inserted into a canvas")
 
         if attrs:
             sc = _canvas(attrs)
@@ -235,16 +198,7 @@ class _canvas(canvasitem):
             self.items.append(sc)
         else:
             self.items.append(item)
-
         return item
-
-    def set(self, attrs):
-        """sets styles args globally for the rest of the canvas
-        """
-
-        attr.checkattrs(attrs, [style.strokestyle, style.fillstyle])
-        for astyle in attrs:
-            self.insert(astyle)
 
     def draw(self, path, attrs):
         """draw path on canvas using the style given by args
@@ -324,11 +278,13 @@ class _canvas(canvasitem):
 #
 
 def _wrappedindocument(method):
-    def wrappedindocument(self, filename, *args, **kwargs):
-        d = document.document([document.page(self, *args, **kwargs)])
+    def wrappedindocument(self, file=None, **kwargs):
+        d = document.document([document.page(self, **kwargs)])
+        self.__name__ = method.__name__
         self.__doc__ = method.__doc__
-        return method(d, filename)
+        return method(d, file)
     return wrappedindocument
+
 
 class canvas(_canvas):
 
@@ -338,3 +294,23 @@ class canvas(_canvas):
     writePSfile = _wrappedindocument(document.document.writePSfile)
     writePDFfile = _wrappedindocument(document.document.writePDFfile)
     writetofile = _wrappedindocument(document.document.writetofile)
+
+    def pipeGS(self, filename="-", device=None, resolution=100,
+               gscommand="gs", gsoptions="",
+               textalphabits=4, graphicsalphabits=4,
+               **kwargs):
+        if device is None:
+            if filename.endswith(".png"):
+                device = "png16m"
+            if filename.endswith(".jpg"):
+                device = "jpeg"
+        gscommand += " -dEPSCrop -dNOPAUSE -dQUIET -dBATCH -r%i -sDEVICE=%s -sOutputFile=%s" % (resolution, device, filename)
+        if gsoptions:
+            gscommand += " %s" % gsoptions
+        if textalphabits is not None:
+            gscommand += " -dTextAlphaBits=%i" % textalphabits
+        if graphicsalphabits is not None:
+            gscommand += " -dGraphicsAlphaBits=%i" % graphicsalphabits
+        gscommand += " -"
+        input = os.popen(gscommand, "w")
+        self.writeEPSfile(input, **kwargs)

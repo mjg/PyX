@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
@@ -134,6 +133,8 @@ class length:
         result.w = self.w / divisor
         result.x = self.x / divisor
         return result
+
+    __truediv__ = __div__
 
     def __add__(self, other):
         # convert to length if necessary

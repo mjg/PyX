@@ -1,10 +1,9 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
 # Copyright (C) 2002-2004 Jörg Lehmann <joergl@users.sourceforge.net>
-# Copyright (C) 2003-2004 Michael Schindler <m-schindler@users.sourceforge.net>
-# Copyright (C) 2002-2005 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2003-2007 Michael Schindler <m-schindler@users.sourceforge.net>
+# Copyright (C) 2002-2006 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -23,7 +22,9 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 
 import glob, os, threading, Queue, re, tempfile, atexit, time, warnings
-import config, siteconfig, unit, box, canvas, trafo, version, attr, style, dvifile
+import config, siteconfig, unit, box, canvas, trafo, version, attr, style
+from pyx.dvi import dvifile
+import bbox as bboxmodule
 
 ###############################################################################
 # texmessages
@@ -41,34 +42,33 @@ class TexResultError(RuntimeError):
     """specialized texrunner exception class
     - it is raised by texmessage instances, when a texmessage indicates an error
     - it is raised by the texrunner itself, whenever there is a texmessage left
-      after all parsing of this message (by texmessage instances)"""
+      after all parsing of this message (by texmessage instances)
+    prints a detailed report about the problem
+    - the verbose level is controlled by texrunner.errordebug"""
 
     def __init__(self, description, texrunner):
-        self.description = description
-        self.texrunner = texrunner
-
-    def __str__(self):
-        """prints a detailed report about the problem
-        - the verbose level is controlled by texrunner.errordebug"""
-        if self.texrunner.errordebug >= 2:
-            return ("%s\n" % self.description +
-                    "The expression passed to TeX was:\n"
-                    "  %s\n" % self.texrunner.expr.replace("\n", "\n  ").rstrip() +
-                    "The return message from TeX was:\n"
-                    "  %s\n" % self.texrunner.texmessage.replace("\n", "\n  ").rstrip() +
-                    "After parsing this message, the following was left:\n"
-                    "  %s" % self.texrunner.texmessageparsed.replace("\n", "\n  ").rstrip())
-        elif self.texrunner.errordebug == 1:
-            firstlines = self.texrunner.texmessageparsed.split("\n")
+        if texrunner.errordebug >= 2:
+            self.description = ("%s\n" % description +
+                                "The expression passed to TeX was:\n"
+                                "  %s\n" % texrunner.expr.replace("\n", "\n  ").rstrip() +
+                                "The return message from TeX was:\n"
+                                "  %s\n" % texrunner.texmessage.replace("\n", "\n  ").rstrip() +
+                                "After parsing this message, the following was left:\n"
+                                "  %s" % texrunner.texmessageparsed.replace("\n", "\n  ").rstrip())
+        elif texrunner.errordebug == 1:
+            firstlines = texrunner.texmessageparsed.split("\n")
             if len(firstlines) > 5:
                 firstlines = firstlines[:5] + ["(cut after 5 lines, increase errordebug for more output)"]
-            return ("%s\n" % self.description +
-                    "The expression passed to TeX was:\n"
-                    "  %s\n" % self.texrunner.expr.replace("\n", "\n  ").rstrip() +
-                    "After parsing the return message from TeX, the following was left:\n" +
-                    reduce(lambda x, y: "%s  %s\n" % (x,y), firstlines, "").rstrip())
+            self.description = ("%s\n" % description +
+                                "The expression passed to TeX was:\n"
+                                "  %s\n" % texrunner.expr.replace("\n", "\n  ").rstrip() +
+                                "After parsing the return message from TeX, the following was left:\n" +
+                                reduce(lambda x, y: "%s  %s\n" % (x,y), firstlines, "").rstrip())
         else:
-            return self.description
+            self.description = description
+
+    def __str__(self):
+        return self.description
 
 
 class _Itexmessage:
@@ -114,20 +114,24 @@ class _texmessagestart(texmessage):
             raise TexResultError("TeX scrollmode check failed", texrunner)
 
 
-class _texmessagenoaux(texmessage):
-    """allows for LaTeXs no-aux-file warning"""
+class _texmessagenofile(texmessage):
+    """allows for LaTeXs no-file warning"""
 
     __implements__ = _Itexmessage
 
+    def __init__(self, fileending):
+        self.fileending = fileending
+
     def check(self, texrunner):
         try:
-            s1, s2 = texrunner.texmessageparsed.split("No file %s.aux." % texrunner.texfilename, 1)
+            s1, s2 = texrunner.texmessageparsed.split("No file %s.%s." % (texrunner.texfilename, self.fileending), 1)
             texrunner.texmessageparsed = s1 + s2
         except (IndexError, ValueError):
             try:
-                s1, s2 = texrunner.texmessageparsed.split("No file %s%s%s.aux." % (os.curdir,
+                s1, s2 = texrunner.texmessageparsed.split("No file %s%s%s.%s." % (os.curdir,
                                                                                    os.sep,
-                                                                                    texrunner.texfilename), 1)
+                                                                                   texrunner.texfilename,
+                                                                                   self.fileending), 1)
                 texrunner.texmessageparsed = s1 + s2
             except (IndexError, ValueError):
                 pass
@@ -240,13 +244,14 @@ class _texmessageemptylines(texmessage):
 class _texmessageload(texmessage):
     """validates inclusion of arbitrary files
     - the matched pattern is "(<filename> <arbitrary other stuff>)", where
-      <fielname> is a readable file and other stuff can be anything
+      <filename> is a readable file and other stuff can be anything
+    - If the filename is enclosed in double quotes, it may contain blank space.
     - "(" and ")" must be used consistent (otherwise this validator just does nothing)
     - this is not always wanted, but we just assume that file inclusion is fine"""
 
     __implements__ = _Itexmessage
 
-    pattern = re.compile(r"\((?P<filename>[^()\s\n]+)(?P<additional>[^()]*)\)")
+    pattern = re.compile(r"\([\"]?(?P<filename>(?:(?<!\")[^()\s\n]+(?!\"))|[^()\"\n]+)[\"]?(?P<additional>[^()]*)\)")
 
     def baselevels(self, s, maxlevel=1, brackets="()"):
         """strip parts of a string above a given bracket level
@@ -327,7 +332,8 @@ class _texmessageignore(_texmessageload):
 
 
 texmessage.start = _texmessagestart()
-texmessage.noaux = _texmessagenoaux()
+texmessage.noaux = _texmessagenofile("aux")
+texmessage.nonav = _texmessagenofile("nav")
 texmessage.end = _texmessageend()
 texmessage.load = _texmessageload()
 texmessage.loaddef = _texmessageloaddef()
@@ -369,6 +375,7 @@ class texmessagepattern(texmessage):
 
 texmessage.fontwarning = texmessagepattern(re.compile(r"^LaTeX Font Warning: .*$(\n^\(Font\).*$)*", re.MULTILINE), "ignoring font warning")
 texmessage.boxwarning = texmessagepattern(re.compile(r"^(Overfull|Underfull) \\[hv]box.*$(\n^..*$)*\n^$\n", re.MULTILINE), "ignoring overfull/underfull box warning")
+texmessage.rerunwarning = texmessagepattern(re.compile(r"^(LaTeX Warning: Label\(s\) may have changed\. Rerun to get cross-references right\s*\.)$", re.MULTILINE), "ignoring rerun warning")
 
 
 
@@ -384,14 +391,11 @@ class textattr:
 class _localattr: pass
 
 _textattrspreamble += r"""\gdef\PyXFlushHAlign{0}%
-\newdimen\PyXraggedskipplus%
-\def\PyXragged{\PyXraggedskipplus=4em%
-\leftskip=0pt plus \PyXFlushHAlign\PyXraggedskipplus%
-\rightskip=0pt plus \PyXraggedskipplus%
-\advance\rightskip0pt plus -\PyXFlushHAlign\PyXraggedskipplus%
+\def\PyXragged{%
+\leftskip=0pt plus \PyXFlushHAlign fil%
+\rightskip=0pt plus 1fil%
+\advance\rightskip0pt plus -\PyXFlushHAlign fil%
 \parfillskip=0pt%
-\spaceskip=0.333em%
-\xspaceskip=0.5em%
 \pretolerance=9999%
 \tolerance=9999%
 \parindent=0pt%
@@ -486,11 +490,11 @@ class parbox_pt(attr.sortbeforeexclusiveattr, textattr):
 
     def apply(self, expr):
         if self.baseline == self.top:
-            return r"\linewidth%.5ftruept\vtop{\hsize\linewidth{}%s}" % (self.width, expr)
+            return r"\linewidth=%.5ftruept\vtop{\hsize=\linewidth\textwidth=\linewidth{}%s}" % (self.width, expr)
         elif self.baseline == self.middle:
-            return r"\linewidth%.5ftruept\setbox\PyXBoxVBox=\hbox{{\vtop{\hsize\linewidth{}%s}}}\PyXDimenVBox=0.5\dp\PyXBoxVBox\setbox\PyXBoxVBox=\hbox{{\vbox{\hsize\linewidth{}%s}}}\advance\PyXDimenVBox by -0.5\dp\PyXBoxVBox\lower\PyXDimenVBox\box\PyXBoxVBox" % (self.width, expr, expr)
+            return r"\linewidth=%.5ftruept\setbox\PyXBoxVBox=\hbox{{\vtop{\hsize=\linewidth\textwidth=\linewidth{}%s}}}\PyXDimenVBox=0.5\dp\PyXBoxVBox\setbox\PyXBoxVBox=\hbox{{\vbox{\hsize=\linewidth\textwidth=\linewidth{}%s}}}\advance\PyXDimenVBox by -0.5\dp\PyXBoxVBox\lower\PyXDimenVBox\box\PyXBoxVBox" % (self.width, expr, expr)
         elif self.baseline == self.bottom:
-            return r"\linewidth%.5ftruept\vbox{\hsize\linewidth{}%s}" % (self.width, expr)
+            return r"\linewidth=%.5ftruept\vbox{\hsize=\linewidth\textwidth=\linewidth{}%s}" % (self.width, expr)
         else:
             RuntimeError("invalid baseline argument")
 
@@ -664,10 +668,9 @@ class textbox(box.rect, canvas._canvas):
         self.depth = depth
         self.texttrafo = trafo.scale(unit.scale["x"]).translated(x, y)
         box.rect.__init__(self, x - left, y - depth, left + right, depth + height, abscenter = (left, depth))
-        canvas._canvas.__init__(self)
+        canvas._canvas.__init__(self, attrs)
         self.finishdvi = finishdvi
         self.dvicanvas = None
-        self.set(attrs)
         self.insertdvicanvas = 0
 
     def transform(self, *trafos):
@@ -694,21 +697,17 @@ class textbox(box.rect, canvas._canvas):
         self.ensuredvicanvas()
         return self.texttrafo.apply(*self.dvicanvas.markers[marker])
 
-    def registerPS(self, registry):
+    def processPS(self, file, writer, context, registry, bbox):
         self.ensuredvicanvas()
-        canvas._canvas.registerPS(self, registry)
+        abbox = bboxmodule.empty()
+        canvas._canvas.processPS(self, file, writer, context, registry, abbox)
+        bbox += box.rect.bbox(self)
 
-    def registerPDF(self, registry):
+    def processPDF(self, file, writer, context, registry, bbox):
         self.ensuredvicanvas()
-        canvas._canvas.registerPDF(self, registry)
-
-    def outputPS(self, file, writer, context):
-        self.ensuredvicanvas()
-        canvas._canvas.outputPS(self, file, writer, context)
-
-    def outputPDF(self, file, writer, context):
-        self.ensuredvicanvas()
-        canvas._canvas.outputPDF(self, file, writer, context)
+        abbox = bboxmodule.empty()
+        canvas._canvas.processPDF(self, file, writer, context, registry, abbox)
+        bbox += box.rect.bbox(self)
 
 
 def _cleantmp(texrunner):
@@ -764,7 +763,7 @@ class texrunner:
     defaulttexmessagesstart = [texmessage.start]
     defaulttexmessagesdocclass = [texmessage.load]
     defaulttexmessagesbegindoc = [texmessage.load, texmessage.noaux]
-    defaulttexmessagesend = [texmessage.end, texmessage.fontwarning]
+    defaulttexmessagesend = [texmessage.end, texmessage.fontwarning, texmessage.rerunwarning]
     defaulttexmessagesdefaultpreamble = [texmessage.load]
     defaulttexmessagesdefaultrun = [texmessage.loaddef, texmessage.graphicsload,
                                     texmessage.fontwarning, texmessage.boxwarning]
@@ -774,7 +773,6 @@ class texrunner:
                        docclass="article",
                        docopt=None,
                        usefiles=[],
-                       fontmaps=config.get("text", "fontmaps", "psfonts.map"),
                        waitfortex=config.getint("text", "waitfortex", 60),
                        showwaitfortex=config.getint("text", "showwaitfortex", 5),
                        texipc=config.getboolean("text", "texipc", 0),
@@ -795,8 +793,7 @@ class texrunner:
         self.lfs = lfs
         self.docclass = docclass
         self.docopt = docopt
-        self.usefiles = usefiles
-        self.fontmaps = fontmaps
+        self.usefiles = usefiles[:]
         self.waitfortex = waitfortex
         self.showwaitfortex = showwaitfortex
         self.texipc = texipc
@@ -810,12 +807,12 @@ class texrunner:
         self.dvidebug = dvidebug
         self.errordebug = errordebug
         self.pyxgraphics = pyxgraphics
-        self.texmessagesstart = texmessagesstart
-        self.texmessagesdocclass = texmessagesdocclass
-        self.texmessagesbegindoc = texmessagesbegindoc
-        self.texmessagesend = texmessagesend
-        self.texmessagesdefaultpreamble = texmessagesdefaultpreamble
-        self.texmessagesdefaultrun = texmessagesdefaultrun
+        self.texmessagesstart = texmessagesstart[:]
+        self.texmessagesdocclass = texmessagesdocclass[:]
+        self.texmessagesbegindoc = texmessagesbegindoc[:]
+        self.texmessagesend = texmessagesend[:]
+        self.texmessagesdefaultpreamble = texmessagesdefaultpreamble[:]
+        self.texmessagesdefaultrun = texmessagesdefaultrun[:]
 
         self.texruns = 0
         self.texdone = 0
@@ -898,7 +895,6 @@ class texrunner:
             self.quitevent = threading.Event() # keeps for end of terminal event
             self.readoutput = _readpipe(self.texoutput, self.expectqueue, self.gotevent, self.gotqueue, self.quitevent)
             self.texruns = 1
-            self.fontmap = dvifile.readfontmap(self.fontmaps.split())
             oldpreamblemode = self.preamblemode
             self.preamblemode = 1
             self.execute("\\scrollmode\n\\raiseerror%\n" # switch to and check scrollmode
@@ -924,7 +920,7 @@ class texrunner:
                          "\\ht\\PyXBoxHAligned0pt%\n" # baseline alignment (hight to zero)
                          "{\\count0=80\\count1=121\\count2=88\\count3=#2\\shipout\\box\\PyXBoxHAligned}}%\n" # shipout PyXBox to Page 80.121.88.<page number>
                          "\\def\\PyXInput#1{\\immediate\\write16{PyXInputMarker:executeid=#1:}}%\n" # write PyXInputMarker to stdout
-                         "\\def\\PyXMarker#1{\\hskip0pt\\special{PyX:marker #1}}%\n", # write PyXMarker special into the dvi-file
+                         "\\def\\PyXMarker#1{\\hskip0pt\\special{PyX:marker #1}}%", # write PyXMarker special into the dvi-file
                          self.defaulttexmessagesstart + self.texmessagesstart)
             os.remove("%s.tex" % self.texfilename)
             if self.mode == "tex":
@@ -964,7 +960,7 @@ class texrunner:
                         raise IOError("%sNo LaTeX font size files (*.lfs) available. Check your installation." % lfserror)
                 self.execute(lfsdef, [])
                 self.execute("\\normalsize%\n", [])
-                self.execute("\\newdimen\\linewidth%\n", [])
+                self.execute("\\newdimen\\linewidth\\newdimen\\textwidth%\n", [])
             elif self.mode == "latex":
                 if self.pyxgraphics:
                     pyxdef = os.path.join(siteconfig.sharedir, "pyx.def")
@@ -1046,10 +1042,10 @@ class texrunner:
         self.execute(None, self.defaulttexmessagesend + self.texmessagesend)
         dvifilename = "%s.dvi" % self.texfilename
         if not self.texipc:
-            self.dvifile = dvifile.dvifile(dvifilename, self.fontmap, debug=self.dvidebug)
+            self.dvifile = dvifile.DVIfile(dvifilename, debug=self.dvidebug)
             page = 1
             for box in self.needdvitextboxes:
-                box.setdvicanvas(self.dvifile.readpage([ord("P"), ord("y"), ord("X"), page, 0, 0, 0, 0, 0, 0]))
+                box.setdvicanvas(self.dvifile.readpage([ord("P"), ord("y"), ord("X"), page, 0, 0, 0, 0, 0, 0], fontmap=box.fontmap))
                 page += 1
         if not ignoretail and self.dvifile.readpage(None) is not None:
             raise RuntimeError("end of dvifile expected")
@@ -1081,7 +1077,6 @@ class texrunner:
                   docclass=_unset,
                   docopt=_unset,
                   usefiles=_unset,
-                  fontmaps=_unset,
                   waitfortex=_unset,
                   showwaitfortex=_unset,
                   texipc=_unset,
@@ -1114,8 +1109,6 @@ class texrunner:
             self.docopt = docopt
         if usefiles is not _unset:
             self.usefiles = usefiles
-        if fontmaps is not _unset:
-            self.fontmaps = fontmaps
         if waitfortex is not _unset:
             self.waitfortex = waitfortex
         if showwaitfortex is not _unset:
@@ -1169,7 +1162,7 @@ class texrunner:
 
     PyXBoxPattern = re.compile(r"PyXBox:page=(?P<page>\d+),lt=(?P<lt>-?\d*((\d\.?)|(\.?\d))\d*)pt,rt=(?P<rt>-?\d*((\d\.?)|(\.?\d))\d*)pt,ht=(?P<ht>-?\d*((\d\.?)|(\.?\d))\d*)pt,dp=(?P<dp>-?\d*((\d\.?)|(\.?\d))\d*)pt:")
 
-    def text(self, x, y, expr, textattrs=[], texmessages=[]):
+    def text(self, x, y, expr, textattrs=[], texmessages=[], fontmap=None):
         """create text by passing expr to TeX/LaTeX
         - returns a textbox containing the result from running expr thru TeX/LaTeX
         - the box center is set to x, y
@@ -1204,17 +1197,20 @@ class texrunner:
             raise
         if self.texipc:
             if first:
-                self.dvifile = dvifile.dvifile("%s.dvi" % self.texfilename, self.fontmap, debug=self.dvidebug)
+                self.dvifile = dvifile.DVIfile("%s.dvi" % self.texfilename, debug=self.dvidebug)
         match = self.PyXBoxPattern.search(self.texmessage)
         if not match or int(match.group("page")) != self.page:
             raise TexResultError("box extents not found", self)
         left, right, height, depth = [float(xxx)*72/72.27*unit.x_pt for xxx in match.group("lt", "rt", "ht", "dp")]
         box = textbox(x, y, left, right, height, depth, self.finishdvi, fillstyles)
         for t in trafos:
-            box.reltransform(t)
+            box.reltransform(t) # TODO: should trafos really use reltransform???
+                                #       this is quite different from what we do elsewhere!!!
+                                #       see https://sourceforge.net/mailarchive/forum.php?thread_id=9137692&forum_id=23700
         if self.texipc:
-            box.setdvicanvas(self.dvifile.readpage([ord("P"), ord("y"), ord("X"), self.page, 0, 0, 0, 0, 0, 0]))
+            box.setdvicanvas(self.dvifile.readpage([ord("P"), ord("y"), ord("X"), self.page, 0, 0, 0, 0, 0, 0], fontmap=fontmap))
         else:
+            box.fontmap = fontmap
             self.needdvitextboxes.append(box)
         return box
 
@@ -1263,7 +1259,7 @@ class texrunner:
                          "\\vfill\\supereject%%\n" % text, [texmessage.ignore])
             if self.texipc:
                 if self.dvifile is None:
-                    self.dvifile = dvifile.dvifile("%s.dvi" % self.texfilename, self.fontmap, debug=self.dvidebug)
+                    self.dvifile = dvifile.DVIfile("%s.dvi" % self.texfilename, debug=self.dvidebug)
             else:
                 raise RuntimeError("textboxes currently needs texipc")
             lastparnos = parnos

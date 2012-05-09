@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
@@ -26,7 +25,7 @@ for module in __allmodules__:
     __import__(module, globals(), locals(), [])
 
 import graph
-__allgraph__ = ["graphxy"]
+__allgraph__ = ["graphxy", "graphxyz"]
 for importfromgraph in __allgraph__:
     locals()[importfromgraph] = getattr(graph, importfromgraph)
 

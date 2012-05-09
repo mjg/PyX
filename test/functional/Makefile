@@ -1,3 +1,5 @@
+PYTHON ?= python
+
 pyfiles = $(wildcard *.py)
 epsfiles = $(patsubst %.py, %.eps, $(pyfiles))
 
@@ -6,10 +8,10 @@ all:
 	make eps
 
 clean:
-	-rm *.eps
+	-rm -f *.eps eps/*.eps
 
 eps: $(epsfiles)
 
 %.eps: %.py
-	export PYTHONPATH=$(CURDIR)/../..; cd $(dir $^) ; python $(notdir $^)
+	export PYTHONPATH=$(CURDIR)/../..; cd $(dir $^) ; $(PYTHON) $(notdir $^)
 

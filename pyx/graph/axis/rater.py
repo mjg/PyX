@@ -1,10 +1,9 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
 # Copyright (C) 2002-2004 Jörg Lehmann <joergl@users.sourceforge.net>
 # Copyright (C) 2003-2004 Michael Schindler <m-schindler@users.sourceforge.net>
-# Copyright (C) 2002-2005 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2002-2006 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -206,6 +205,8 @@ class rater:
           access to the labels whose distances have to be taken
           into account
         - the density is used within the distancerate instance"""
+        if axiscanvas.labels is None: # to disable any layout rating
+            return 0
         if len(axiscanvas.labels) > 1:
             try:
                 distances = [axiscanvas.labels[i].boxdistance_pt(axiscanvas.labels[i+1])
@@ -214,7 +215,7 @@ class rater:
                 return None
             return self.distance.rate(distances, density)
         else:
-            return 0
+            return None
 
 
 class linear(rater):

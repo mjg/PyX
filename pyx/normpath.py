@@ -1,9 +1,8 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
-# Copyright (C) 2002-2005 Jörg Lehmann <joergl@users.sourceforge.net>
-# Copyright (C) 2003-2004 Michael Schindler <m-schindler@users.sourceforge.net>
+# Copyright (C) 2002-2006 Jörg Lehmann <joergl@users.sourceforge.net>
+# Copyright (C) 2003-2006 Michael Schindler <m-schindler@users.sourceforge.net>
 # Copyright (C) 2002-2006 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
@@ -32,7 +31,8 @@ except ImportError:
     def radians(x): return x*math.pi/180
     def degrees(x): return x*180/math.pi
 
-import bbox, canvas, mathutils, path, trafo, unit
+import mathutils, path, trafo, unit
+import bbox as bboxmodule
 
 try:
     sum([])
@@ -63,12 +63,13 @@ class _invalid:
 
     """invalid result marker class
 
-    The followin norm(sub)path(item) methods:
+    The following norm(sub)path(item) methods:
       - trafo
       - rotation
       - tangent_pt
       - tangent
       - curvature_pt
+      - curvradius_pt
     return list of result values, which might contain the invalid instance
     defined below to signal points, where the result is undefined due to
     properties of the norm(sub)path(item). Accessing invalid leads to an
@@ -81,7 +82,7 @@ class _invalid:
 
     def invalid2(self, other):
         self.invalid1()
-    __cmp__ = __add__ = __iadd__ = __sub__ = __isub__ = __mul__ = __imul__ = __div__ = __idiv__ = invalid2
+    __cmp__ = __add__ = __iadd__ = __sub__ = __isub__ = __mul__ = __imul__ = __div__ = __truediv__ = __idiv__ = invalid2
 
 invalid = _invalid()
 
@@ -212,11 +213,11 @@ class normsubpathitem:
         """return transformed normsubpathitem according to trafo"""
         pass
 
-    def outputPS(self, file, writer, context):
+    def outputPS(self, file, writer):
         """write PS code corresponding to normsubpathitem to file"""
         pass
 
-    def outputPDF(self, file, writer, context):
+    def outputPDF(self, file, writer):
         """write PDF code corresponding to normsubpathitem to file"""
         pass
 
@@ -259,8 +260,8 @@ class normline_pt(normsubpathitem):
         return self.x1_pt, self.y1_pt
 
     def bbox(self):
-        return bbox.bbox_pt(min(self.x0_pt, self.x1_pt), min(self.y0_pt, self.y1_pt),
-                            max(self.x0_pt, self.x1_pt), max(self.y0_pt, self.y1_pt))
+        return bboxmodule.bbox_pt(min(self.x0_pt, self.x1_pt), min(self.y0_pt, self.y1_pt),
+                                  max(self.x0_pt, self.x1_pt), max(self.y0_pt, self.y1_pt))
 
     cbox = bbox
 
@@ -340,10 +341,10 @@ class normline_pt(normsubpathitem):
     def transformed(self, trafo):
         return normline_pt(*(trafo.apply_pt(self.x0_pt, self.y0_pt) + trafo.apply_pt(self.x1_pt, self.y1_pt)))
 
-    def outputPS(self, file, writer, context):
+    def outputPS(self, file, writer):
         file.write("%g %g lineto\n" % (self.x1_pt, self.y1_pt))
 
-    def outputPDF(self, file, writer, context):
+    def outputPDF(self, file, writer):
         file.write("%f %f l\n" % (self.x1_pt, self.y1_pt))
 
 
@@ -472,13 +473,13 @@ class normcurve_pt(normsubpathitem):
     def bbox(self):
         xmin_pt, xmax_pt = path._bezierpolyrange(self.x0_pt, self.x1_pt, self.x2_pt, self.x3_pt)
         ymin_pt, ymax_pt = path._bezierpolyrange(self.y0_pt, self.y1_pt, self.y2_pt, self.y3_pt)
-        return bbox.bbox_pt(xmin_pt, ymin_pt, xmax_pt, ymax_pt)
+        return bboxmodule.bbox_pt(xmin_pt, ymin_pt, xmax_pt, ymax_pt)
 
     def cbox(self):
-        return bbox.bbox_pt(min(self.x0_pt, self.x1_pt, self.x2_pt, self.x3_pt),
-                            min(self.y0_pt, self.y1_pt, self.y2_pt, self.y3_pt),
-                            max(self.x0_pt, self.x1_pt, self.x2_pt, self.x3_pt),
-                            max(self.y0_pt, self.y1_pt, self.y2_pt, self.y3_pt))
+        return bboxmodule.bbox_pt(min(self.x0_pt, self.x1_pt, self.x2_pt, self.x3_pt),
+                                  min(self.y0_pt, self.y1_pt, self.y2_pt, self.y3_pt),
+                                  max(self.x0_pt, self.x1_pt, self.x2_pt, self.x3_pt),
+                                  max(self.y0_pt, self.y1_pt, self.y2_pt, self.y3_pt))
 
     def curvature_pt(self, params):
         result = []
@@ -665,10 +666,10 @@ class normcurve_pt(normsubpathitem):
         x3_pt, y3_pt = trafo.apply_pt(self.x3_pt, self.y3_pt)
         return normcurve_pt(x0_pt, y0_pt, x1_pt, y1_pt, x2_pt, y2_pt, x3_pt, y3_pt)
 
-    def outputPS(self, file, writer, context):
+    def outputPS(self, file, writer):
         file.write("%g %g %g %g %g %g curveto\n" % (self.x1_pt, self.y1_pt, self.x2_pt, self.y2_pt, self.x3_pt, self.y3_pt))
 
-    def outputPDF(self, file, writer, context):
+    def outputPDF(self, file, writer):
         file.write("%f %f %f %f %f %f c\n" % (self.x1_pt, self.y1_pt, self.x2_pt, self.y2_pt, self.x3_pt, self.y3_pt))
 
     def x_pt(self, t):
@@ -912,6 +913,8 @@ class normsubpath:
 
     def at_pt(self, params):
         """return coordinates at params in pts"""
+        if not self.normsubpathitems and self.skippedline:
+            return [self.skippedline.atbegin_pt()]*len(params)
         result = [None] * len(params)
         for normsubpathitemindex, (indices, params) in self._distributeparams(params).items():
             for index, point_pt in zip(indices, self.normsubpathitems[normsubpathitemindex].at_pt(params)):
@@ -938,7 +941,7 @@ class normsubpath:
                 abbox += anormpathitem.bbox()
             return abbox
         else:
-            return None
+            return bboxmodule.empty()
 
     def close(self):
         """close subnormpath
@@ -1161,6 +1164,8 @@ class normsubpath:
 
     def _paramtoarclen_pt(self, params):
         """return a tuple of arc lengths and the total arc length in pts"""
+        if not self.normsubpathitems:
+            return [0] * len(params), 0
         result = [None] * len(params)
         totalarclen_pt = 0
         distributeparams = self._distributeparams(params)
@@ -1303,7 +1308,7 @@ class normsubpath:
             nnormsubpath.append(self.skippedline.transformed(trafo))
         return nnormsubpath
 
-    def outputPS(self, file, writer, context):
+    def outputPS(self, file, writer):
         # if the normsubpath is closed, we must not output a normline at
         # the end
         if not self.normsubpathitems:
@@ -1315,11 +1320,11 @@ class normsubpath:
             normsubpathitems = self.normsubpathitems
         file.write("%g %g moveto\n" % self.atbegin_pt())
         for anormsubpathitem in normsubpathitems:
-            anormsubpathitem.outputPS(file, writer, context)
+            anormsubpathitem.outputPS(file, writer)
         if self.closed:
             file.write("closepath\n")
 
-    def outputPDF(self, file, writer, context):
+    def outputPDF(self, file, writer):
         # if the normsubpath is closed, we must not output a normline at
         # the end
         if not self.normsubpathitems:
@@ -1331,7 +1336,7 @@ class normsubpath:
             normsubpathitems = self.normsubpathitems
         file.write("%f %f m\n" % self.atbegin_pt())
         for anormsubpathitem in normsubpathitems:
-            anormsubpathitem.outputPDF(file, writer, context)
+            anormsubpathitem.outputPDF(file, writer)
         if self.closed:
             file.write("h\n")
 
@@ -1419,7 +1424,7 @@ def _valueorlistmethod(method):
     return wrappedmethod
 
 
-class normpath(canvas.canvasitem):
+class normpath:
 
     """normalized path
 
@@ -1594,13 +1599,9 @@ class normpath(canvas.canvasitem):
 
     def bbox(self):
         """return bbox of normpath"""
-        abbox = None
+        abbox = bboxmodule.empty()
         for normsubpath in self.normsubpaths:
-            nbbox =  normsubpath.bbox()
-            if abbox is None:
-                abbox = nbbox
-            elif nbbox:
-                abbox += nbbox
+            abbox += normsubpath.bbox()
         return abbox
 
     def begin(self):
@@ -1636,7 +1637,11 @@ class normpath(canvas.canvasitem):
         this radius can be negative or positive, depending on the sign of the
         curvature."""
 
-        return self._curveradius_pt(self._convertparams(params, self.arclentoparam_pt))
+        result = [None] * len(params)
+        for normsubpathindex, (indices, params) in self._distributeparams(params).items():
+            for index, curv_pt in zip(indices, self.normsubpaths[normsubpathindex].curvature_pt(params)):
+                result[index] = curv_pt
+        return result
     curvature_pt = _valueorlistmethod(curvature_pt)
 
     def _curveradius_pt(self, params):
@@ -1718,6 +1723,8 @@ class normpath(canvas.canvasitem):
         The last normsubpath of self will be joined to the first
         normsubpath of other.
         """
+        other = other.normpath()
+
         if not self.normsubpaths:
             raise NormpathException("cannot join to empty path")
         if not other.normsubpaths:
@@ -1802,6 +1809,8 @@ class normpath(canvas.canvasitem):
 
     def _split_pt(self, params):
         """split path at params and return list of normpaths"""
+        if not params:
+            return [self.copy()]
 
         # instead of distributing the parameters, we need to keep their
         # order and collect parameters for splitting of normsubpathitem
@@ -1917,10 +1926,10 @@ class normpath(canvas.canvasitem):
         """return transformed normpath"""
         return normpath([normsubpath.transformed(trafo) for normsubpath in self.normsubpaths])
 
-    def outputPS(self, file, writer, context):
+    def outputPS(self, file, writer):
         for normsubpath in self.normsubpaths:
-            normsubpath.outputPS(file, writer, context)
+            normsubpath.outputPS(file, writer)
 
-    def outputPDF(self, file, writer, context):
+    def outputPDF(self, file, writer):
         for normsubpath in self.normsubpaths:
-            normsubpath.outputPDF(file, writer, context)
+            normsubpath.outputPDF(file, writer)

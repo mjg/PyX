@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
-# Copyright (C) 2003-2005 Michael Schindler <m-schindler@users.sourceforge.net>
+# Copyright (C) 2003-2006 Michael Schindler <m-schindler@users.sourceforge.net>
 # Copyright (C) 2003-2005 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
@@ -21,10 +20,19 @@
 # along with PyX; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 
+from __future__ import nested_scopes
 
 import math, warnings
 import attr, mathutils, path, normpath, unit, color
-from path import degrees
+from path import degrees, radians
+
+try:
+    enumerate([])
+except NameError:
+    # fallback implementation for Python 2.2 and below
+    def enumerate(list):
+        return zip(xrange(len(list)), list)
+
 
 # specific exception for an invalid parameterization point
 # used in parallel
@@ -71,7 +79,7 @@ def curvescontrols_from_endlines_pt(B, tangent1, tangent2, r1, r2, softness): # 
     return (d1, g1, f1, e, f2, g2, d2)
 # >>>
 
-def controldists_from_endgeometry_pt(A, B, tangA, tangB, curvA, curvB, epsilon): # <<<
+def controldists_from_endgeometry_pt(A, B, tangA, tangB, curvA, curvB, allownegative=0): # <<<
 
     """For a curve with given tangents and curvatures at the endpoints this gives the distances between the controlpoints
 
@@ -85,9 +93,102 @@ def controldists_from_endgeometry_pt(A, B, tangA, tangB, curvA, curvB, epsilon):
           The outcome is sorted so that the first entry is expected to be the
           most reasonable one
     """
+    debug = 0
 
-    # these two thresholds are dimensionless, not lengths:
-    fallback_threshold = 1.0e-3
+    def test_divisions(T, D, E, AB, curvA, curvB, debug):# <<<
+
+        def is_zero(x):
+            try:
+                1.0 / x
+            except ZeroDivisionError:
+                return 1
+            return 0
+
+        T_is_zero = is_zero(T)
+        curvA_is_zero = is_zero(curvA)
+        curvB_is_zero = is_zero(curvB)
+
+        if T_is_zero:
+            if curvA_is_zero:
+                assert abs(D) < 1.0e-10
+                a = AB / 3.0
+                if curvB_is_zero:
+                    assert abs(E) < 1.0e-10
+                    b = AB / 3.0
+                else:
+                    b = math.sqrt(abs(E / (1.5 * curvB))) * mathutils.sign(E*curvB)
+            else:
+                a = math.sqrt(abs(D / (1.5 * curvA))) * mathutils.sign(D*curvA)
+                if curvB_is_zero:
+                    assert abs(E) < 1.0e-10
+                    b = AB / 3.0
+                else:
+                    b = math.sqrt(abs(E / (1.5 * curvB))) * mathutils.sign(E*curvB)
+        else:
+            if curvA_is_zero:
+                b = D / T
+                a = (E - 1.5*curvB*b*abs(b)) / T
+            elif curvB_is_zero:
+                a = E / T
+                b = (D - 1.5*curvA*a*abs(a)) / T
+            else:
+                return []
+
+        if debug:
+            print "fallback with exact zero value"
+        return [(a, b)]
+    # >>>
+    def fallback_smallT(T, D, E, AB, curvA, curvB, threshold, debug):# <<<
+        a = math.sqrt(abs(D / (1.5 * curvA))) * mathutils.sign(D*curvA)
+        b = math.sqrt(abs(E / (1.5 * curvB))) * mathutils.sign(E*curvB)
+        q1 = min(abs(1.5*a*a*curvA), abs(D))
+        q2 = min(abs(1.5*b*b*curvB), abs(E))
+        if (a >= 0 and b >= 0 and
+            abs(b*T) < threshold * q1 and abs(1.5*a*abs(a)*curvA - D) < threshold * q1 and
+            abs(a*T) < threshold * q2 and abs(1.5*b*abs(b)*curvB - E) < threshold * q2):
+            if debug:
+                print "fallback with T approx 0"
+            return [(a, b)]
+        return []
+    # >>>
+    def fallback_smallcurv(T, D, E, AB, curvA, curvB, threshold, debug):# <<<
+        result = []
+
+        # is curvB approx zero?
+        a = E / T
+        b = (D - 1.5*curvA*a*abs(a)) / T
+        if (a >= 0 and b >= 0 and
+            abs(1.5*b*b*curvB) < threshold * min(abs(a*T), abs(E)) and
+            abs(a*T - E) < threshold * min(abs(a*T), abs(E))):
+            if debug:
+                print "fallback with curvB approx 0"
+            result.append((a, b))
+
+        # is curvA approx zero?
+        b = D / T
+        a = (E - 1.5*curvB*b*abs(b)) / T
+        if (a >= 0 and b >= 0 and
+            abs(1.5*a*a*curvA) < threshold * min(abs(b*T), abs(D)) and
+            abs(b*T - D) < threshold * min(abs(b*T), abs(D))):
+            if debug:
+                print "fallback with curvA approx 0"
+            result.append((a, b))
+
+        return result
+    # >>>
+    def findnearest(x, ys): # <<<
+        I = 0
+        Y = ys[I]
+        mindist = abs(x - Y)
+
+        # find the value in ys which is nearest to x
+        for i, y in enumerate(ys[1:]):
+            dist = abs(x - y)
+            if dist < mindist:
+                I, Y, mindist = i, y, dist
+
+        return I, Y
+    # >>>
 
     # some shortcuts
     T = tangA[0] * tangB[1] - tangA[1] * tangB[0]
@@ -95,68 +196,12 @@ def controldists_from_endgeometry_pt(A, B, tangA, tangB, curvA, curvB, epsilon):
     E = tangB[0] * (A[1]-B[1]) - tangB[1] * (A[0]-B[0])
     AB = math.hypot(A[0] - B[0], A[1] - B[1])
 
-    # For curvatures zero we found no solutions (during testing)
-    # Terefore, we need a fallback.
-    # When the curvature is nearly zero or when T is nearly zero
-    # we know the exact answer to the problem.
+    # try if one of the prefactors is exactly zero
+    testsols = test_divisions(T, D, E, AB, curvA, curvB, debug)
+    if testsols:
+        return testsols
 
-    # extreme case: all parameters are nearly zero
-    a = b = 0.3 * AB
-    if max([abs(1.5*a*a*curvA), abs(1.5*b*b*curvB), abs(a*T), abs(b*T), abs(D), abs(E)]) < epsilon:
-        return [(a, b)]
-
-    # extreme case: curvA geometrically too big
-    if fallback_threshold * abs(curvA*AB) > 1:
-        a = math.sqrt(abs(D / (1.5 * curvA))) * mathutils.sign(D*curvA)
-        b = (D - 1.5*curvA*a*abs(a)) / T
-        return [(a, b)]
-
-    # extreme case: curvB geometrically too big
-    if fallback_threshold * abs(curvB*AB) > 1:
-        b = math.sqrt(abs(E / (1.5 * curvB))) * mathutils.sign(E*curvB)
-        a = (E - 1.5*curvB*b*abs(b)) / T
-        return [(a, b)]
-
-    # extreme case: curvA much smaller than T
-    try:
-        b = D / T
-        a = (E - 1.5*curvB*b*abs(b)) / T
-    except ZeroDivisionError:
-        pass
-    else:
-        if abs(1.5*a*a*curvA) < fallback_threshold * abs(b*T):
-            return [(a, b)]
-
-    # extreme case: curvB much smaller than T
-    try:
-        a = E / T
-        b = (D - 1.5*curvA*a*abs(a)) / T
-    except ZeroDivisionError:
-        pass
-    else:
-        if abs(1.5*b*b*curvB) < fallback_threshold * abs(a*T):
-            return [(a, b)]
-
-    # extreme case: T much smaller than both curvatures
-    try:
-        a = math.sqrt(abs(D / (1.5 * curvA))) * mathutils.sign(D*curvA)
-    except ZeroDivisionError:
-        # we have tried the case with small curvA already
-        # and we cannot divide by T
-        pass
-    else:
-        try:
-            b = math.sqrt(abs(E / (1.5 * curvB))) * mathutils.sign(E*curvB)
-        except ZeroDivisionError:
-            # we have tried the case with small curvB already
-            # and we cannot divide by T
-            pass
-        else:
-            if (abs(b*T) < fallback_threshold * abs(1.5*a*a*curvA) and
-                abs(a*T) < fallback_threshold * abs(1.5*b*b*curvB) ):
-                return [(a, b)]
-
-    # Now the general case:
+    # The general case:
     # we try to find all the zeros of the decoupled 4th order problem
     # for the combined problem:
     # The control points of a cubic Bezier curve are given by a, b:
@@ -166,53 +211,87 @@ def controldists_from_endgeometry_pt(A, B, tangA, tangB, curvA, curvB, epsilon):
     #     0 = 1.5 b |b| curvB + a * T - E
     # because of the absolute values we get several possibilities for the signs
     # in the equation. We test all signs, also the invalid ones!
-    candidates_a, candidates_b = [], []
-    for sign_a in [+1, -1]:
-        for sign_b in [+1, -1]:
-            coeffs_a = (sign_b*3.375*curvA*curvA*curvB, 0.0, -sign_b*sign_a*4.5*curvA*curvB*D, T**3, sign_b*1.5*curvB*D*D - T*T*E)
-            coeffs_b = (sign_a*3.375*curvA*curvB*curvB, 0.0, -sign_a*sign_b*4.5*curvA*curvB*E, T**3, sign_a*1.5*curvA*E*E - T*T*D)
-            candidates_a += [root for root in mathutils.realpolyroots(*coeffs_a) if sign_a*root >= 0]
-            candidates_b += [root for root in mathutils.realpolyroots(*coeffs_b) if sign_b*root >= 0]
+    if allownegative:
+        signs = [(+1, +1), (-1, +1), (+1, -1), (-1, -1)]
+    else:
+        signs = [(+1, +1)]
 
-    # check the combined equations
-    # and find the candidate pairs
+    candidates_a = []
+    candidates_b = []
+    for sign_a, sign_b in signs:
+        coeffs_a = (sign_b*3.375*curvA*curvA*curvB, 0.0, -sign_b*sign_a*4.5*curvA*curvB*D, T**3, sign_b*1.5*curvB*D*D - T*T*E)
+        coeffs_b = (sign_a*3.375*curvA*curvB*curvB, 0.0, -sign_a*sign_b*4.5*curvA*curvB*E, T**3, sign_a*1.5*curvA*E*E - T*T*D)
+        candidates_a += [root for root in mathutils.realpolyroots(*coeffs_a) if sign_a*root >= 0]
+        candidates_b += [root for root in mathutils.realpolyroots(*coeffs_b) if sign_b*root >= 0]
     solutions = []
-    for a in candidates_a:
-        for b in candidates_b:
-            # check if the calculated radii of curvature do not differ from 1/curv
-            # by more than epsilon. This uses epsilon like in all normpath
-            # methods as a criterion for "length".
-            # In mathematical language this is
-            #   abs(1.5a|a|/(D-bT) - 1/curvA) < epsilon
-            if ( abs(1.5*curvA*a*abs(a) + b*T - D) < epsilon * abs(curvA*(D - b*T)) and
-                 abs(1.5*curvB*b*abs(b) + a*T - E) < epsilon * abs(curvB*(E - a*T)) ):
-                solutions.append((a, b))
+    if candidates_a and candidates_b:
+        for a in candidates_a:
+            i, b = findnearest((D - 1.5*curvA*a*abs(a))/T, candidates_b)
+            solutions.append((a, b))
+
+    # try if there is an approximate solution
+    for thr in [1.0e-2, 1.0e-1]:
+        if not solutions:
+            solutions = fallback_smallT(T, D, E, AB, curvA, curvB, thr, debug)
+        if not solutions:
+            solutions = fallback_smallcurv(T, D, E, AB, curvA, curvB, thr, debug)
 
     # sort the solutions: the more reasonable values at the beginning
-    def mycmp(x,y):
+    def mycmp(x,y): # <<<
         # first the pairs that are purely positive, then all the pairs with some negative signs
         # inside the two sets: sort by magnitude
-        sx = x[0] > 0 and x[1] > 0
-        sy = y[0] > 0 and y[1] > 0
-        if sx == sy:
-            return cmp(x[0]**2 + x[1]**2, y[0]**2 + y[1]**2)
+        sx = (x[0] > 0 and x[1] > 0)
+        sy = (y[0] > 0 and y[1] > 0)
+
+        # experimental stuff:
+        # what criterion should be used for sorting ?
+        #
+        #errx = abs(1.5*curvA*x[0]*abs(x[0]) + x[1]*T - D) + abs(1.5*curvB*x[1]*abs(x[1]) + x[0]*T - E)
+        #erry = abs(1.5*curvA*y[0]*abs(y[0]) + y[1]*T - D) + abs(1.5*curvB*y[1]*abs(y[1]) + y[0]*T - E)
+        # # For each equation, a value like
+        # #   abs(1.5*curvA*y[0]*abs(y[0]) + y[1]*T - D) / abs(curvA*(D - y[1]*T))
+        # # indicates how good the solution is. In order to avoid the division,
+        # # we here multiply with all four denominators:
+        # errx = max(abs( (1.5*curvA*y[0]*abs(y[0]) + y[1]*T - D) * (curvB*(E - y[0]*T))*(curvA*(D - x[1]*T))*(curvB*(E - x[0]*T)) ),
+        #            abs( (1.5*curvB*y[1]*abs(y[1]) + y[0]*T - E) * (curvA*(D - y[1]*T))*(curvA*(D - x[1]*T))*(curvB*(E - x[0]*T)) ))
+        # errx = max(abs( (1.5*curvA*x[0]*abs(x[0]) + x[1]*T - D) * (curvA*(D - y[1]*T))*(curvB*(E - y[0]*T))*(curvB*(E - x[0]*T)) ),
+        #            abs( (1.5*curvB*x[1]*abs(x[1]) + x[0]*T - E) * (curvA*(D - y[1]*T))*(curvB*(E - y[0]*T))*(curvA*(D - x[1]*T)) ))
+        #errx = (abs(curvA*x[0]) - 1.0)**2 + (abs(curvB*x[1]) - 1.0)**2
+        #erry = (abs(curvA*y[0]) - 1.0)**2 + (abs(curvB*y[1]) - 1.0)**2
+
+        errx = x[0]**2 + x[1]**2
+        erry = y[0]**2 + y[1]**2
+
+        if sx == 1 and sy == 1:
+            # try to use longer solutions if there are any crossings in the control-arms
+            # the following combination yielded fewest sorting errors in test_bezier.py
+            t, s = intersection(A, B, tangA, tangB)
+            t, s = abs(t), abs(s)
+            if (t > 0 and t < x[0] and s > 0 and s < x[1]):
+                if (t > 0 and t < y[0] and s > 0 and s < y[1]):
+                    # use the shorter one
+                    return cmp(errx, erry)
+                else:
+                    # use the longer one
+                    return -1
+            else:
+                if (t > 0 and t < y[0] and s > 0 and s < y[1]):
+                    # use the longer one
+                    return 1
+                else:
+                    # use the shorter one
+                    return cmp(errx, erry)
+            #return cmp(x[0]**2 + x[1]**2, y[0]**2 + y[1]**2)
         else:
             return cmp(sy, sx)
-
+    # >>>
     solutions.sort(mycmp)
-
-    # XXX should the solutions's list also be unique'fied?
-
-    # XXX we will stop here, if solutions is empty
-    if not solutions:
-        #print curvA, curvB, T, D, E
-        raise ValueError, "no curve found. Try adjusting the fallback-parameters."
 
     return solutions
 # >>>
 
 def normcurve_from_endgeometry_pt(A, B, tangA, tangB, curvA, curvB): # <<<
-    a, b = controldists_from_endgeometry_pt(A, B, tangA, tangB, curvA, curvB, epsilon=epsilon)[0]
+    a, b = controldists_from_endgeometry_pt(A, B, tangA, tangB, curvA, curvB)[0]
     return normpath.normcurve_pt(A[0], A[1],
         A[0] + a * tangA[0], A[1] + a * tangA[1],
         B[0] - b * tangB[0], B[1] - b * tangB[1], B[0], B[1])
@@ -513,15 +592,18 @@ class smoothed(deformer): # <<<
                         # make the sign such that the curve smoothly passes to the next point
                         # this results in a discontinuous curvature
                         # (but the absolute value is still continuous)
-                        s1 = mathutils.sign(t1[0] * (p2[1]-p1[1]) - t1[1] * (p2[0]-p1[0]))
-                        s2 = mathutils.sign(t2[0] * (p2[1]-p1[1]) - t2[1] * (p2[0]-p1[0]))
+                        s1 = +mathutils.sign(t1[0] * (p2[1]-p1[1]) - t1[1] * (p2[0]-p1[0]))
+                        s2 = -mathutils.sign(t2[0] * (p2[1]-p1[1]) - t2[1] * (p2[0]-p1[0]))
                         c1 = s1 * abs(c1)
                         c2 = s2 * abs(c2)
 
                     # get the length of the control "arms"
-                    a, d = controldists_from_endgeometry_pt(p1, p2, t1, t2, c1, c2, epsilon=epsilon)[0]
+                    controldists = controldists_from_endgeometry_pt(p1, p2, t1, t2, c1, c2)
 
-                    if a >= 0 and d >= 0:
+                    if controldists and (controldists[0][0] >= 0 and controldists[0][1] >= 0):
+                        # use the first entry in the controldists
+                        # this should be the "smallest" pair
+                        a, d = controldists[0]
                         # avoid curves with invalid parameterization
                         a = max(a, epsilon)
                         d = max(d, epsilon)
@@ -537,10 +619,11 @@ class smoothed(deformer): # <<<
                                 d = min(d, abs(s))
 
                     else:
+                        # use a fallback
                         t, s = intersection(p1, p2, t1, t2)
                         if t is not None and s is not None:
-                            a = abs(t)
-                            d = abs(s)
+                            a = 0.65 * abs(t)
+                            d = 0.65 * abs(s)
                         else:
                             # if there is no useful result:
                             # take an arbitrary smoothing curve that does not obey
@@ -587,13 +670,9 @@ class parallel(deformer): # <<<
     """
 
     # TODO:
-    # * more testing of controldists_from_endgeometry_pt
     # * do testing for curv=0, T=0, D=0, E=0 cases
     # * do testing for several random curves
     #   -- does the recursive deformnicecurve converge?
-    #
-    # TODO for the test cases:
-    # * improve the intersection of nearly degenerate paths
 
 
     def __init__(self, distance, relerr=0.05, sharpoutercorners=0, dointersection=1,
@@ -684,8 +763,8 @@ class parallel(deformer): # <<<
                     if self.length_pt(next_orig_nspitem, invalid_nspitem_param, 1) > epsilon:
                         p1, foo = self.valid_near_rotation(next_orig_nspitem, invalid_nspitem_param, 0, stepsize, 0.5*epsilon)
                         p2, foo = self.valid_near_rotation(next_orig_nspitem, invalid_nspitem_param, 1, stepsize, 0.5*epsilon)
-                        segments = next_orig_nspitem.segments([0, p1, p2, 1])[0:3:2]
-                        segments[1] = segments[1].modifiedbegin_pt(*(segments[0].atend_pt()))
+                        segments = next_orig_nspitem.segments([0, p1, p2, 1])
+                        segments = segments[0], segments[2].modifiedbegin_pt(*(segments[0].atend_pt()))
                     else:
                         p1, foo = self.valid_near_rotation(next_orig_nspitem, invalid_nspitem_param, 0, stepsize, 0.5*epsilon)
                         segments = next_orig_nspitem.segments([0, p1])
@@ -911,7 +990,7 @@ class parallel(deformer): # <<<
         # or even split it for recursive calls
         if (math.hypot(A[0] - D[0], A[1] - D[1]) < epsilon and
             math.hypot(tangA[0] - tangD[0], tangA[1] - tangD[1]) < T_threshold):
-            return normpath.normsubpath([normpath.normline_pt(A[0], A[1], D[0], D[1])], epsilon=epsilon)
+            return normpath.normsubpath([normpath.normline_pt(A[0], A[1], D[0], D[1])])
 
         result = normpath.normsubpath(epsilon=epsilon)
         # is there enough space on the normals before they intersect?
@@ -934,21 +1013,24 @@ class parallel(deformer): # <<<
             curvD = orig_curvD / (1.0 - dist*orig_curvD)
 
             # first try to approximate the normcurve with a single item
-            # TODO: is it good enough to get the first entry here?
-            # TODO: we rely on getting a result!
-            a, d = controldists_from_endgeometry_pt(A, D, tangA, tangD, curvA, curvD, epsilon=epsilon)[0]
-            if a >= 0 and d >= 0:
-                if a < epsilon and d < epsilon:
-                    result = normpath.normsubpath([normpath.normline_pt(A[0], A[1], D[0], D[1])], epsilon=epsilon)
-                else:
-                    # we avoid curves with invalid parameterization
-                    a = max(a, epsilon)
-                    d = max(d, epsilon)
-                    result = normpath.normsubpath([normpath.normcurve_pt(
-                        A[0], A[1],
-                        A[0] + a * tangA[0], A[1] + a * tangA[1],
-                        D[0] - d * tangD[0], D[1] - d * tangD[1],
-                        D[0], D[1])], epsilon=epsilon)
+            controldistpairs = controldists_from_endgeometry_pt(A, D, tangA, tangD, curvA, curvD)
+
+            if controldistpairs:
+                # TODO: is it good enough to get the first entry here?
+                #       from testing: this fails if there are loops in the original curve
+                a, d = controldistpairs[0]
+                if a >= 0 and d >= 0:
+                    if a < epsilon and d < epsilon:
+                        result = normpath.normsubpath([normpath.normline_pt(A[0], A[1], D[0], D[1])], epsilon=epsilon)
+                    else:
+                        # we avoid curves with invalid parameterization
+                        a = max(a, epsilon)
+                        d = max(d, epsilon)
+                        result = normpath.normsubpath([normpath.normcurve_pt(
+                            A[0], A[1],
+                            A[0] + a * tangA[0], A[1] + a * tangA[1],
+                            D[0] - d * tangD[0], D[1] - d * tangD[1],
+                            D[0], D[1])], epsilon=epsilon)
 
             # then try with two items, recursive call
             if ((not result.normsubpathitems) or
@@ -1103,12 +1185,7 @@ class parallel(deformer): # <<<
                     else:
                         nspitem_j_range = range(len(np[nsp_j]))
                     for nspitem_j in nspitem_j_range:
-                        #print "intersecting (%d,%d) with (%d,%d)" %(nsp_i, nspitem_i, nsp_j, nspitem_j)
                         intsparams = np[nsp_i][nspitem_i].intersect(np[nsp_j][nspitem_j], epsilon)
-                        #if 1:#intsparams:
-                        #    print np[nsp_i][nspitem_i]
-                        #    print np[nsp_j][nspitem_j]
-                        #    print intsparams
                         if intsparams:
                             for intsparam_i, intsparam_j in intsparams:
                                 if ( (abs(intsparam_i) < epsilon and abs(1-intsparam_j) < epsilon) or 
@@ -1118,8 +1195,8 @@ class parallel(deformer): # <<<
                                 npp_j = normpath.normpathparam(np, nsp_j, float(nspitem_j)+intsparam_j)
                                 linearparams.append(npp_i)
                                 linearparams.append(npp_j)
-                                paramsriap[npp_i] = len(parampairs)
-                                paramsriap[npp_j] = len(parampairs)
+                                paramsriap[id(npp_i)] = len(parampairs)
+                                paramsriap[id(npp_j)] = len(parampairs)
                                 parampairs.append((npp_i, npp_j))
         linearparams.sort()
         return linearparams, parampairs, paramsriap
@@ -1190,14 +1267,14 @@ class parallel(deformer): # <<<
         allparams.sort()
         allparamindices = {}
         for i, param in enumerate(allparams):
-            allparamindices[param] = i
+            allparamindices[id(param)] = i
 
         done = {}
         for param in allparams:
-            done[param] = 0
+            done[id(param)] = 0
 
         def otherparam(p): # <<<
-            pair = selfintpairs[selfintsriap[p]]
+            pair = selfintpairs[selfintsriap[id(p)]]
             if (p is pair[0]):
                 return pair[1]
             else:
@@ -1206,10 +1283,10 @@ class parallel(deformer): # <<<
         def trial_parampairs(startp): # <<<
             tried = {}
             for param in allparams:
-                tried[param] = done[param]
+                tried[id(param)] = done[id(param)]
 
             lastp = startp
-            currentp = allparams[allparamindices[startp] + 1]
+            currentp = allparams[allparamindices[id(startp)] + 1]
             result = []
 
             while 1:
@@ -1222,7 +1299,7 @@ class parallel(deformer): # <<<
                 if currentp in endparams:
                     result.append((lastp, currentp))
                     return result
-                if tried[currentp]:
+                if tried[id(currentp)]:
                     return []
                 if currentp in origintparams:
                     return []
@@ -1233,20 +1310,20 @@ class parallel(deformer): # <<<
                     # go to the next pair on the curve, seen from currentpair[1]
                     result.append((lastp, currentp))
                     lastp = otherparam(currentp)
-                    tried[currentp] = 1
-                    tried[otherparam(currentp)] = 1
-                    currentp = allparams[allparamindices[otherparam(currentp)] + 1]
+                    tried[id(currentp)] = 1
+                    tried[id(otherparam(currentp))] = 1
+                    currentp = allparams[allparamindices[id(otherparam(currentp))] + 1]
                 else:
                     # go to the next pair on the curve, seen from currentpair[0]
-                    tried[currentp] = 1
-                    tried[otherparam(currentp)] = 1
-                    currentp = allparams[allparamindices[currentp] + 1]
+                    tried[id(currentp)] = 1
+                    tried[id(otherparam(currentp))] = 1
+                    currentp = allparams[allparamindices[id(currentp)] + 1]
             assert 0
         # >>>
 
         # first the paths that start at the beginning of a subnormpath:
         for startp in beginparams + selfintparams:
-            if done[startp]:
+            if done[id(startp)]:
                 continue
 
             parampairs = trial_parampairs(startp)
@@ -1262,21 +1339,21 @@ class parallel(deformer): # <<<
                 assert begin.normsubpathindex is end.normsubpathindex
                 for item in par_np[begin.normsubpathindex].segments(
                     [begin.normsubpathparam, end.normsubpathparam])[0].normsubpathitems:
-                    # TODO: this should be obsolete with an improved intersecion algorithm
-                    # guaranteeing epsilon
+                    # TODO: this should be obsolete with an improved intersection algorithm
+                    #       guaranteeing epsilon
                     if add_nsp.normsubpathitems:
                         item = item.modifiedbegin_pt(*(add_nsp.atend_pt()))
                     add_nsp.append(item)
 
                 if begin in selfintparams:
-                    done[begin] = 1
+                    done[id(begin)] = 1
                     #done[otherparam(begin)] = 1
                 if end in selfintparams:
-                    done[end] = 1
+                    done[id(end)] = 1
                     #done[otherparam(end)] = 1
 
             # eventually close the path
-            if (parampairs[0][0] is parampairs[-1][-1] or
+            if add_nsp and (parampairs[0][0] is parampairs[-1][-1] or
                 (parampairs[0][0] in selfintparams and otherparam(parampairs[0][0]) is parampairs[-1][-1])):
                 add_nsp.normsubpathitems[-1] = add_nsp.normsubpathitems[-1].modifiedend_pt(*add_nsp.atbegin_pt())
                 add_nsp.close()

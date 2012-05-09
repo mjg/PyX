@@ -1,10 +1,9 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
-# Copyright (C) 2002-2005 Jörg Lehmann <joergl@users.sourceforge.net>
-# Copyright (C) 2003-2004 Michael Schindler <m-schindler@users.sourceforge.net>
-# Copyright (C) 2002-2005 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2002-2006 Jörg Lehmann <joergl@users.sourceforge.net>
+# Copyright (C) 2003-2005 Michael Schindler <m-schindler@users.sourceforge.net>
+# Copyright (C) 2002-2006 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -33,8 +32,9 @@ except ImportError:
     def radians(x): return x*pi/180
     def degrees(x): return x*180/pi
 
-import bbox, canvas, trafo, unit
+import trafo, unit
 from normpath import NormpathException, normpath, normsubpath, normline_pt, normcurve_pt
+import bbox as bboxmodule
 
 # set is available as an external interface to the normpath.set method
 from normpath import set
@@ -291,7 +291,7 @@ class pathitem:
         """
         raise NotImplementedError()
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         """write PS representation of pathitem to file"""
 
 
@@ -323,7 +323,7 @@ class closepath(pathitem):
         context.x_pt = context.subfirstx_pt
         context.y_pt = context.subfirsty_pt
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("closepath\n")
 
 
@@ -344,7 +344,7 @@ class moveto_pt(pathitem):
         return context(self.x_pt, self.y_pt, self.x_pt, self.y_pt)
 
     def createbbox(self):
-        return bbox.bbox_pt(self.x_pt, self.y_pt, self.x_pt, self.y_pt)
+        return bboxmodule.bbox_pt(self.x_pt, self.y_pt, self.x_pt, self.y_pt)
 
     def createnormpath(self, epsilon=_marker):
         if epsilon is _marker:
@@ -367,7 +367,7 @@ class moveto_pt(pathitem):
         context.x_pt = context.subfirstx_pt = self.x_pt
         context.y_pt = context.subfirsty_pt = self.y_pt
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("%g %g moveto\n" % (self.x_pt, self.y_pt) )
 
 
@@ -395,7 +395,7 @@ class lineto_pt(pathitem):
         context.x_pt = self.x_pt
         context.y_pt = self.y_pt
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("%g %g lineto\n" % (self.x_pt, self.y_pt) )
 
 
@@ -414,9 +414,9 @@ class curveto_pt(pathitem):
         self.y3_pt = y3_pt
 
     def __str__(self):
-        return "curveto_pt(%g,%g, %g, %g, %g, %g)" % (self.x1_pt, self.y1_pt,
-                                                      self.x2_pt, self.y2_pt,
-                                                      self.x3_pt, self.y3_pt)
+        return "curveto_pt(%g, %g, %g, %g, %g, %g)" % (self.x1_pt, self.y1_pt,
+                                                       self.x2_pt, self.y2_pt,
+                                                       self.x3_pt, self.y3_pt)
 
     def updatebbox(self, bbox, context):
         xmin_pt, xmax_pt = _bezierpolyrange(context.x_pt, self.x1_pt, self.x2_pt, self.x3_pt)
@@ -434,7 +434,7 @@ class curveto_pt(pathitem):
         context.x_pt = self.x3_pt
         context.y_pt = self.y3_pt
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("%g %g %g %g %g %g curveto\n" % (self.x1_pt, self.y1_pt,
                                                     self.x2_pt, self.y2_pt,
                                                     self.x3_pt, self.y3_pt))
@@ -472,7 +472,7 @@ class rmoveto_pt(pathitem):
         else:
             normpath.append(normsubpath(epsilon=normpath.normsubpaths[-1].epsilon))
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("%g %g rmoveto\n" % (self.dx_pt, self.dy_pt) )
 
 
@@ -500,7 +500,7 @@ class rlineto_pt(pathitem):
         context.x_pt += self.dx_pt
         context.y_pt += self.dy_pt
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("%g %g rlineto\n" % (self.dx_pt, self.dy_pt) )
 
 
@@ -545,7 +545,7 @@ class rcurveto_pt(pathitem):
         context.x_pt += self.dx3_pt
         context.y_pt += self.dy3_pt
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("%g %g %g %g %g %g rcurveto\n" % (self.dx1_pt, self.dy1_pt,
                                                      self.dx2_pt, self.dy2_pt,
                                                      self.dx3_pt, self.dy3_pt))
@@ -573,8 +573,8 @@ class arc_pt(pathitem):
         return context(x_pt, y_pt, x_pt, y_pt)
 
     def createbbox(self):
-        return bbox.bbox_pt(*_arcbboxdata(self.x_pt, self.y_pt, self.r_pt,
-                                          self.angle1, self.angle2))
+        return bboxmodule.bbox_pt(*_arcbboxdata(self.x_pt, self.y_pt, self.r_pt,
+                                                self.angle1, self.angle2))
 
     def createnormpath(self, epsilon=_marker):
         if epsilon is _marker:
@@ -601,7 +601,7 @@ class arc_pt(pathitem):
         normpath.normsubpaths[-1].extend(_arctobezierpath(self.x_pt, self.y_pt, self.r_pt, self.angle1, self.angle2))
         context.x_pt, context.y_pt = _arcpoint(self.x_pt, self.y_pt, self.r_pt, self.angle2)
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("%g %g %g %g %g arc\n" % (self.x_pt, self.y_pt,
                                              self.r_pt,
                                              self.angle1,
@@ -630,8 +630,8 @@ class arcn_pt(pathitem):
         return context(x_pt, y_pt, x_pt, y_pt)
 
     def createbbox(self):
-        return bbox.bbox_pt(*_arcbboxdata(self.x_pt, self.y_pt, self.r_pt,
-                                          self.angle2, self.angle1))
+        return bboxmodule.bbox_pt(*_arcbboxdata(self.x_pt, self.y_pt, self.r_pt,
+                                                self.angle2, self.angle1))
 
     def createnormpath(self, epsilon=_marker):
         if epsilon is _marker:
@@ -661,7 +661,7 @@ class arcn_pt(pathitem):
             normpath.normsubpaths[-1].append(bpathitem.reversed())
         context.x_pt, context.y_pt = _arcpoint(self.x_pt, self.y_pt, self.r_pt, self.angle2)
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("%g %g %g %g %g arcn\n" % (self.x_pt, self.y_pt,
                                               self.r_pt,
                                               self.angle1,
@@ -756,7 +756,7 @@ class arct_pt(pathitem):
         for pathitem in self._pathitems(context.x_pt, context.y_pt):
             pathitem.updatenormpath(normpath, context)
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         file.write("%g %g %g %g %g arct\n" % (self.x1_pt, self.y1_pt,
                                               self.x2_pt, self.y2_pt,
                                               self.r_pt))
@@ -892,7 +892,7 @@ class multilineto_pt(pathitem):
             x0_pt, y0_pt = point_pt
         context.x_pt, context.y_pt = x0_pt, y0_pt
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         for point_pt in self.points_pt:
             file.write("%g %g lineto\n" % point_pt )
 
@@ -927,7 +927,7 @@ class multicurveto_pt(pathitem):
             x0_pt, y0_pt = point_pt[4:]
         context.x_pt, context.y_pt = x0_pt, y0_pt
 
-    def outputPS(self, file):
+    def outputPS(self, file, writer):
         for point_pt in self.points_pt:
             file.write("%g %g %g %g %g %g curveto\n" % point_pt)
 
@@ -936,7 +936,7 @@ class multicurveto_pt(pathitem):
 # path: PS style path
 ################################################################################
 
-class path(canvas.canvasitem):
+class path:
 
     """PS style path"""
 
@@ -1033,7 +1033,7 @@ class path(canvas.canvasitem):
                 pathitem.updatebbox(bbox, context)
             return bbox
         else:
-            return None
+            return bboxmodule.empty()
 
     def begin(self):
         """return param corresponding of the beginning of the path"""
@@ -1147,7 +1147,7 @@ class path(canvas.canvasitem):
         """split normpath at param(s) or arc length(s) and return list of normpaths"""
         return self.normpath().split(params)
 
-    def tangent_pt(self, params, length=None):
+    def tangent_pt(self, params, length):
         """return tangent vector of path at param(s) or arc length(s) in pts
 
         If length in pts is not None, the tangent vector will be scaled to
@@ -1155,7 +1155,7 @@ class path(canvas.canvasitem):
         """
         return self.normpath().tangent_pt(params, length)
 
-    def tangent(self, params, length=None):
+    def tangent(self, params, length=1):
         """return tangent vector of path at param(s) or arc length(s)
 
         If length is not None, the tangent vector will be scaled to
@@ -1175,17 +1175,17 @@ class path(canvas.canvasitem):
         """return transformed path"""
         return self.normpath().transformed(trafo)
 
-    def outputPS(self, file, writer, context):
+    def outputPS(self, file, writer):
         """write PS code to file"""
         for pitem in self.pathitems:
-            pitem.outputPS(file)
+            pitem.outputPS(file, writer)
 
-    def outputPDF(self, file, writer, context):
+    def outputPDF(self, file, writer):
         """write PDF code to file"""
         # PDF only supports normsubpathitems; we need to use a normpath
         # with epsilon equals None to prevent failure for paths shorter
         # than epsilon
-        self.normpath(epsilon=None).outputPDF(file, writer, context)
+        self.normpath(epsilon=None).outputPDF(file, writer)
 
 
 #

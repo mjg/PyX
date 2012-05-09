@@ -1,9 +1,8 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
-# Copyright (C) 2002-2005 Jörg Lehmann <joergl@users.sourceforge.net>
-# Copyright (C) 2002-2005 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2002-2007 Jörg Lehmann <joergl@users.sourceforge.net>
+# Copyright (C) 2002-2007 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -22,5 +21,5 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 
 
-version = "0.8+"
-date = "2005/??/??"
+version = "0.10"
+date = "2007/10/03"

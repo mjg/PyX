@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
-# Copyright (C) 2003-2004 Michael Schindler <m-schindler@users.sourceforge.net>
+# Copyright (C) 2003-2006 Michael Schindler <m-schindler@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -76,7 +75,8 @@ class connector_pt(normpath.normpath):
             pass
         else:
             sp = self.intersect(cutpath)[0]
-            self.normsubpaths = self.split(sp[:1])[0].normsubpaths
+            if sp:
+                self.normsubpaths = self.split(sp[:1])[0].normsubpaths
 
 
 ################
@@ -92,7 +92,8 @@ class line_pt(connector_pt):
         self.box2 = box2
 
         connector_pt.__init__(self,
-            [path.normsubpath([path.normline_pt(*(self.box1.center+self.box2.center))], closed=0)])
+            [path.normsubpath([path.normline_pt(self.box1.center[0], self.box1.center[1],
+                                                self.box2.center[0], self.box2.center[1])], closed=0)])
 
         self.omitends(box1, box2)
         self.shortenpath(boxdists)
@@ -332,7 +333,7 @@ class line(line_pt):
 
     """a line is the straight connector between the centers of two boxes"""
 
-    def __init__(self, box1, box2, boxdists=[0,0]):
+    def __init__(self, box1, box2, boxdists=(0,0)):
         line_pt.__init__(self, box1, box2, boxdists=map(unit.topt, boxdists))
 
 

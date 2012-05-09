@@ -1,10 +1,9 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
-# Copyright (C) 2002-2005 Jörg Lehmann <joergl@users.sourceforge.net>
-# Copyright (C) 2003-2004 Michael Schindler <m-schindler@users.sourceforge.net>
-# Copyright (C) 2002-2004 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2002-2006 Jörg Lehmann <joergl@users.sourceforge.net>
+# Copyright (C) 2003-2004,2006 Michael Schindler <m-schindler@users.sourceforge.net>
+# Copyright (C) 2002-2006 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -23,15 +22,15 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 
 import math
-import attr, unit, canvas
+import attr, unit, canvasitem
 
 #
 # base classes for stroke and fill styles
 #
 
-class strokestyle(canvas.canvasitem): pass
+class strokestyle(canvasitem.canvasitem): pass
 
-class fillstyle(canvas.canvasitem): pass
+class fillstyle(canvasitem.canvasitem): pass
 
 #
 # common stroke styles
@@ -46,10 +45,10 @@ class linecap(attr.exclusiveattr, strokestyle):
         attr.exclusiveattr.__init__(self, linecap)
         self.value = value
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         file.write("%d setlinecap\n" % self.value)
 
-    def outputPDF(self, file, writer, context):
+    def processPDF(self, file, writer, context, registry, bbox):
         file.write("%d J\n" % self.value)
 
 linecap.butt = linecap(0)
@@ -66,10 +65,10 @@ class linejoin(attr.exclusiveattr, strokestyle):
         attr.exclusiveattr.__init__(self, linejoin)
         self.value = value
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         file.write("%d setlinejoin\n" % self.value)
 
-    def outputPDF(self, file, writer, context):
+    def processPDF(self, file, writer, context, registry, bbox):
         file.write("%d j\n" % self.value)
 
 linejoin.miter = linejoin(0)
@@ -86,10 +85,10 @@ class miterlimit(attr.exclusiveattr, strokestyle):
         attr.exclusiveattr.__init__(self, miterlimit)
         self.value = value
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         file.write("%f setmiterlimit\n" % self.value)
 
-    def outoutPDF(self, file):
+    def processPDF(self, file, writer, context, registry, bbox):
         file.write("%f M\n" % self.value)
 
 miterlimit.lessthan180deg = miterlimit(1/math.sin(math.pi*180/360))
@@ -100,11 +99,14 @@ miterlimit.lessthan11deg = miterlimit(10) # the default, approximately 11.4783 d
 miterlimit.clear = attr.clearclass(miterlimit)
 
 
+_defaultlinewidth = 0.02 * unit.w_cm
+_defaultlinewidth_pt = unit.topt(_defaultlinewidth)
+
 class dash(attr.exclusiveattr, strokestyle):
 
     """dash of paths"""
 
-    def __init__(self, pattern=[], offset=0, rellengths=0):
+    def __init__(self, pattern=[], offset=0, rellengths=1):
         """set pattern with offset.
 
         If rellengths is True, interpret all dash lengths relative to current linewidth.
@@ -114,16 +116,16 @@ class dash(attr.exclusiveattr, strokestyle):
         self.offset = offset
         self.rellengths = rellengths
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         if self.rellengths:
-            patternstring = " ".join(["%f" % (element * context.linewidth_pt) for element in self.pattern])
+            patternstring = " ".join(["%f" % (element * context.linewidth_pt/_defaultlinewidth_pt) for element in self.pattern])
         else:
             patternstring = " ".join(["%f" % element for element in self.pattern])
         file.write("[%s] %d setdash\n" % (patternstring, self.offset))
 
-    def outputPDF(self, file, writer, context):
+    def processPDF(self, file, writer, context, registry, bbox):
         if self.rellengths:
-            patternstring = " ".join(["%f" % (element * context.linewidth_pt) for element in self.pattern])
+            patternstring = " ".join(["%f" % (element * context.linewidth_pt/_defaultlinewidth_pt) for element in self.pattern])
         else:
             patternstring = " ".join(["%f" % element for element in self.pattern])
         file.write("[%s] %d d\n" % (patternstring, self.offset))
@@ -142,13 +144,13 @@ class linestyle(attr.exclusiveattr, strokestyle):
         self.c = c
         self.d = d
 
-    def outputPS(self, file, writer, context):
-        self.c.outputPS(file, writer, context)
-        self.d.outputPS(file, writer, context)
+    def processPS(self, file, writer, context, registry, bbox):
+        self.c.processPS(file, writer, context, registry, bbox)
+        self.d.processPS(file, writer, context, registry, bbox)
 
-    def outputPDF(self, file, writer, context):
-        self.c.outputPDF(file, writer, context)
-        self.d.outputPDF(file, writer, context)
+    def processPDF(self, file, writer, context, registry, bbox):
+        self.c.processPDF(file, writer, context, registry, bbox)
+        self.d.processPDF(file, writer, context, registry, bbox)
 
 linestyle.solid = linestyle(linecap.butt, dash([]))
 linestyle.dashed = linestyle(linecap.butt, dash([2]))
@@ -165,26 +167,24 @@ class linewidth(attr.sortbeforeexclusiveattr, strokestyle):
         attr.sortbeforeexclusiveattr.__init__(self, linewidth, [dash, linestyle])
         self.width = width
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         file.write("%f setlinewidth\n" % unit.topt(self.width))
         context.linewidth_pt = unit.topt(self.width)
 
-    def outputPDF(self, file, writer, context):
+    def processPDF(self, file, writer, context, registry, bbox):
         file.write("%f w\n" % unit.topt(self.width))
         context.linewidth_pt = unit.topt(self.width)
 
-_base = 0.02 * unit.w_cm
-
-linewidth.THIN = linewidth(_base/math.sqrt(32))
-linewidth.THIn = linewidth(_base/math.sqrt(16))
-linewidth.THin = linewidth(_base/math.sqrt(8))
-linewidth.Thin = linewidth(_base/math.sqrt(4))
-linewidth.thin = linewidth(_base/math.sqrt(2))
-linewidth.normal = linewidth(_base)
-linewidth.thick = linewidth(_base*math.sqrt(2))
-linewidth.Thick = linewidth(_base*math.sqrt(4))
-linewidth.THick = linewidth(_base*math.sqrt(8))
-linewidth.THIck = linewidth(_base*math.sqrt(16))
-linewidth.THICk = linewidth(_base*math.sqrt(32))
-linewidth.THICK = linewidth(_base*math.sqrt(64))
+linewidth.THIN = linewidth(_defaultlinewidth/math.sqrt(32))
+linewidth.THIn = linewidth(_defaultlinewidth/math.sqrt(16))
+linewidth.THin = linewidth(_defaultlinewidth/math.sqrt(8))
+linewidth.Thin = linewidth(_defaultlinewidth/math.sqrt(4))
+linewidth.thin = linewidth(_defaultlinewidth/math.sqrt(2))
+linewidth.normal = linewidth(_defaultlinewidth)
+linewidth.thick = linewidth(_defaultlinewidth*math.sqrt(2))
+linewidth.Thick = linewidth(_defaultlinewidth*math.sqrt(4))
+linewidth.THick = linewidth(_defaultlinewidth*math.sqrt(8))
+linewidth.THIck = linewidth(_defaultlinewidth*math.sqrt(16))
+linewidth.THICk = linewidth(_defaultlinewidth*math.sqrt(32))
+linewidth.THICK = linewidth(_defaultlinewidth*math.sqrt(64))
 linewidth.clear = attr.clearclass(linewidth)

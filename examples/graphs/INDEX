@@ -1,15 +1,5 @@
 minimal
-errorbar
-histogram
+function
 lissajous
-piaxis
-symbolline
-manyaxes
-inset
-link
+axis
 change
-arrows
-mandel
-integral
-partialfill
-washboard

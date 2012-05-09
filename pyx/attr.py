@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
@@ -21,25 +20,6 @@
 # You should have received a copy of the GNU General Public License
 # along with PyX; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
-
-# check for an isinstance which accepts both a class and a sequence of classes
-# as second argument and emulate this behaviour if necessary
-try:
-    isinstance(1, (int, float))
-except TypeError:
-    # workaround for Python 2.1
-    _isinstance = isinstance
-    def isinstance(instance, clsarg):
-        import types
-        try:
-            _isinstance(clsarg, types.ClassType)
-        except:
-            for cls in clsarg:
-                if _isinstance(instance, cls):
-                    return 1
-            return 0
-        else:
-            return _isinstance(instance, clsarg)
 
 #
 # some helper functions for the attribute handling
@@ -258,4 +238,17 @@ class changelist(changeattr):
             return self.attrs[index]
         else:
             return None
+
+
+class multichangeattr(changeattr):
+
+    """a changeable attr, which selects a changeable attr from
+    a given dict (or list) of changeable attrs depending on the
+    value of total in the select call"""
+
+    def __init__(self, changeattrs):
+        self.changeattrs = changeattrs
+
+    def select(self, index, total):
+        return self.changeattrs[total].select(index, total)
 

@@ -1,9 +1,8 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
-# Copyright (C) 2002-2005 Jörg Lehmann <joergl@users.sourceforge.net>
-# Copyright (C) 2002-2005 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2002-2006 Jörg Lehmann <joergl@users.sourceforge.net>
+# Copyright (C) 2002-2006 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -22,7 +21,7 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 
 import string
-import canvas, bbox, pykpathsea, unit, trafo, pswriter
+import canvasitem, bbox, pykpathsea, unit, trafo, pswriter
 
 # PostScript-procedure definitions (cf. 5002.EPSF_Spec_v3.0.pdf)
 # with important correction in EndEPSF:
@@ -92,7 +91,7 @@ class linefilereader:
         if count is not None:
             if count > len(self.buffer):
                 self.buffer += self.file.read(count - len(self.buffer))
-            if EOFmsg is not None and len(buffer) < count:
+            if EOFmsg is not None and len(self.buffer) < count:
                 raise IOError(EOFmsg)
             result = self.buffer[:count]
             self.buffer = self.buffer[count:]
@@ -225,7 +224,7 @@ def _readbbox(filename):
     return usebbox
 
 
-class epsfile(canvas.canvasitem):
+class epsfile(canvasitem.canvasitem):
 
     """class for epsfiles"""
 
@@ -313,14 +312,10 @@ class epsfile(canvas.canvasitem):
     def bbox(self):
         return self.mybbox.transformed(self.trafo)
 
-    def registerPS(self, registry):
+    def processPS(self, file, writer, context, registry, bbox):
         registry.add(_BeginEPSF)
         registry.add(_EndEPSF)
-
-    def registerPDF(self, registry):
-        raise RuntimeError("cannot include EPS file in PDF file")
-
-    def outputPS(self, file, writer, context):
+        bbox += self.bbox()
         try:
             epsfile=open(self.filename,"rb")
         except:
@@ -332,9 +327,12 @@ class epsfile(canvas.canvasitem):
             llx_pt, lly_pt, urx_pt, ury_pt = self.mybbox.transformed(self.trafo).highrestuple_pt()
             file.write("%g %g %g %g rectclip\n" % (llx_pt, lly_pt, urx_pt-llx_pt, ury_pt-lly_pt))
 
-        self.trafo.outputPS(file, writer, context)
+        self.trafo.processPS(file, writer, context, registry, bbox)
 
         file.write("%%%%BeginDocument: %s\n" % self.filename)
         file.write(epsfile.read()) 
         file.write("%%EndDocument\n")
         file.write("EndEPSF\n")
+
+    def processPDF(self, file, writer, context, registry, bbox):
+        raise RuntimeError("Including EPS files in PDF files not supported")

@@ -9,6 +9,42 @@
     <h1>PyX - News</h1>
 
     <dl>
+      <dt>2007-10-03: PyX 0.10 released</dt>
+      <dd>
+        This release adds 3d plotting facilities to PyX using parallel or central
+        projection. Two new graph styles grids and surfaces can be used in 3d
+        graphs as well as some existing generic graph styles (symbols, lines,
+        errorbars etc.). Several new examples, various other improvements
+        requested by PyX users and some bugfixes complete this release.
+      </dd>
+      <dt>2006-09-14: Talk about Type1 fonts and PyX in Rosenheim</dt>
+      <dd>
+        A talk about Type1 fonts and PyX was presented at the
+        <a href="http://www.dante.de/dante/events/mv35/">fall meeting</a> of the <a href="http://www.dante.de/dante/events/mv35/">German Speaking TeX User Group DANTE e.V.</a> (September 14th and 15th, Rosenheim).
+        The presentation is available in
+        <a href="presentation_dantemv35_de.pdf">German (pdf, 19 pages, 226 KB)</a> and
+        in a crude <a href="presentation_dantemv35_en.pdf">english translation</a>.
+      </dd>
+      <dt>2006-09-11: First public version of PyXPlot released</dt>
+      <dd>
+        Dominic Ford released the first public version of <a
+        href="http://www.pyxplot.org.uk/">PyXPlot</a>, which provides a
+        Gnuplot-style interface to PyX. PyXPlot already supports a large subset
+        of Gnuplot's original functionality, always combined with the
+        high-quality output of PyX.
+      </dd>
+      <dt>2006-05-24: PyX 0.9 released</dt>
+      <dd>
+        This release features a new set of deformers for path manipulations
+        like smoothing, shifting, etc. A new set of extensively documented
+        examples describing various aspects of PyX in a cookbook-like fashion
+        have been written. Type 1 font-stripping is now handled by a newly
+        written Python module. The evaluation of functions for graph plotting
+        is now left to Python. Thereby some obscure data manipulation could be
+        removed from the bar style for handling of nested bar graphs.
+        Transparency is now supported for PDF output. Many more small
+        improvements and bug fixes top off this release.
+      </dd>
       <dt>2006-01-20: New PyX tutorial for Gnuplot users</dt>
       <dd>
         Titus Winters wrote a very nice <a href="http://www.cs.ucr.edu/~titus/pyxTutorial/">tutorial</a>

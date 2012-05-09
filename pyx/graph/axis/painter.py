@@ -1,10 +1,9 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
 # Copyright (C) 2002-2004 Jörg Lehmann <joergl@users.sourceforge.net>
 # Copyright (C) 2003-2004 Michael Schindler <m-schindler@users.sourceforge.net>
-# Copyright (C) 2002-2005 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2002-2006 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -106,7 +105,6 @@ class _title(_text):
             canvas.extent_pt += unit.topt(self.titledist)
             title.linealign_pt(canvas.extent_pt, -dx, -dy)
             canvas.extent_pt += title.extent_pt(dx, dy)
-            canvas.insert(title)
 
 
 class geometricseries(attr.changeattr):
@@ -236,6 +234,10 @@ class regular(_title):
                 extent_pt = t.temp_labelbox.extent_pt(t.temp_dx, t.temp_dy) + labeldist_pt
                 if extent_pt > canvas.extent_pt:
                     canvas.extent_pt = extent_pt
+
+        if self.labelattrs is None:
+            canvas.labels = None
+
         if self.basepathattrs is not None:
             canvas.stroke(axispos.vbasepath(), self.defaultbasepathattrs + self.basepathattrs)
 

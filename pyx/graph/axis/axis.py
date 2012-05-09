@@ -1,10 +1,9 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
 # Copyright (C) 2002-2004 Jörg Lehmann <joergl@users.sourceforge.net>
 # Copyright (C) 2003-2004 Michael Schindler <m-schindler@users.sourceforge.net>
-# Copyright (C) 2002-2005 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2002-2006 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -24,7 +23,7 @@
 
 from __future__ import nested_scopes
 
-import math
+import math, warnings
 from pyx import attr, unit, text
 from pyx.graph.axis import painter, parter, positioner, rater, texter, tick
 
@@ -58,6 +57,11 @@ class _axis:
         if linkpainter is not None:
             linkpainter.paint(canvas, data, self, positioner)
         return canvas
+
+
+class NoValidPartitionError(RuntimeError):
+
+    pass
 
 
 class _regularaxis(_axis):
@@ -113,10 +117,25 @@ class _regularaxis(_axis):
             last = item
         return sorted
 
-    def create(self, data, positioner, graphtexrunner, errorname):
+    def _create(self, data, positioner, graphtexrunner, parter, rater, errorname):
         errorname = " for axis %s" % errorname
         if data.min is None or data.max is None:
             raise RuntimeError("incomplete axis range%s" % errorname)
+
+        def layout(data):
+            self.adjustaxis(data, data.ticks, graphtexrunner, errorname)
+            self.texter.labels(data.ticks)
+            if self.divisor:
+                for t in data.ticks:
+                    t *= tick.rational(self.divisor)
+            canvas = painter.axiscanvas(self.painter, graphtexrunner)
+            if self.painter is not None:
+                self.painter.paint(canvas, data, self, positioner)
+            return canvas
+
+        if parter is None:
+            data.ticks = self.manualticks
+            return layout(data)
 
         # a variant is a data copy with local modifications to test several partitions
         class variant:
@@ -129,79 +148,65 @@ class _regularaxis(_axis):
                 return getattr(data, key)
 
             def __cmp__(self, other):
+                # we can also sort variants by their rate
                 return cmp(self.rate, other.rate)
 
         # build a list of variants
         bestrate = None
-        if self.parter is not None:
-            if self.divisor is not None:
-                partfunctions = self.parter.partfunctions(data.min/self.divisor, data.max/self.divisor,
-                                                          self.min is None, self.max is None)
-            else:
-                partfunctions = self.parter.partfunctions(data.min, data.max,
-                                                          self.min is None, self.max is None)
-            variants = []
-            for partfunction in partfunctions:
-                worse = 0
-                while worse < self.maxworse:
-                    worse += 1
-                    ticks = partfunction()
-                    if ticks is None:
-                        break
-                    ticks = tick.mergeticklists(self.manualticks, ticks, mergeequal=0)
-                    if ticks:
-                        rate = ( self.rater.rateticks(self, ticks, self.density) +
-                                 self.rater.raterange(self.convert(data, ticks[-1]) -
-                                                      self.convert(data, ticks[0]), 1) )
-                        if bestrate is None or rate < bestrate:
-                            bestrate = rate
-                            worse = 0
-                        variants.append(variant(data, rate=rate, ticks=ticks))
-            if not variants:
-                raise RuntimeError("no axis partitioning found%s" % errorname)
+        if self.divisor is not None:
+            partfunctions = parter.partfunctions(data.min/self.divisor, data.max/self.divisor,
+                                                 self.min is None, self.max is None)
         else:
-            variants = [variant(data, rate=0, ticks=self.manualticks)]
+            partfunctions = parter.partfunctions(data.min, data.max,
+                                                 self.min is None, self.max is None)
+        variants = []
+        for partfunction in partfunctions:
+            worse = 0
+            while worse < self.maxworse:
+                worse += 1
+                ticks = partfunction()
+                if ticks is None:
+                    break
+                ticks = tick.mergeticklists(self.manualticks, ticks, mergeequal=0)
+                if ticks:
+                    rate = rater.rateticks(self, ticks, self.density)
+                    if self.reverse:
+                        rate += rater.raterange(self.convert(data, ticks[0]) -
+                                                self.convert(data, ticks[-1]), 1)
+                    else:
+                        rate += rater.raterange(self.convert(data, ticks[-1]) -
+                                                self.convert(data, ticks[0]), 1)
+                    if bestrate is None or rate < bestrate:
+                        bestrate = rate
+                        worse = 0
+                    variants.append(variant(data, rate=rate, ticks=ticks))
 
-        # get best variant
-        if self.painter is None or len(variants) == 1:
-            # in case of a single variant we're almost done
-            self.adjustaxis(data, variants[0].ticks, graphtexrunner, errorname)
-            if variants[0].ticks:
-                self.texter.labels(variants[0].ticks)
-            if self.divisor:
-                for t in variants[0].ticks:
-                    t *= tick.rational(self.divisor)
-            canvas = painter.axiscanvas(self.painter, graphtexrunner)
+        if not variants:
+            raise RuntimeError("no axis partitioning found%s" % errorname)
+
+        if len(variants) == 1 or self.painter is None:
+            # When the painter is None, we could sort the variants here by their rating.
+            # However, we didn't did this so far and there is no real reason to change that.
             data.ticks = variants[0].ticks
-            if self.painter is not None:
-                self.painter.paint(canvas, data, self, positioner)
-            return canvas
-        else:
-            # build the layout for best variants
-            for variant in variants:
-                variant.storedcanvas = None
+            return layout(data)
+
+        # build the layout for best variants
+        for variant in variants:
+            variant.storedcanvas = None
+        variants.sort()
+        while not variants[0].storedcanvas:
+            variants[0].storedcanvas = layout(variants[0])
+            ratelayout = rater.ratelayout(variants[0].storedcanvas, self.density)
+            if ratelayout is None:
+                del variants[0]
+                if not variants:
+                    raise NoValidPartitionError("no valid axis partitioning found%s" % errorname)
+            else:
+                variants[0].rate += ratelayout
             variants.sort()
-            while not variants[0].storedcanvas:
-                self.adjustaxis(variants[0], variants[0].ticks, graphtexrunner, errorname)
-                if variants[0].ticks:
-                    self.texter.labels(variants[0].ticks)
-                if self.divisor:
-                    for t in variants[0].ticks:
-                        t *= tick.rational(self.divisor)
-                canvas = painter.axiscanvas(self.painter, graphtexrunner)
-                self.painter.paint(canvas, variants[0], self, positioner)
-                ratelayout = self.rater.ratelayout(canvas, self.density)
-                if ratelayout is None:
-                    del variants[0]
-                    if not variants:
-                        raise RuntimeError("no valid axis partitioning found%s" % errorname)
-                else:
-                    variants[0].rate += ratelayout
-                    variants[0].storedcanvas = canvas
-                variants.sort()
-            self.adjustaxis(data, variants[0].ticks, graphtexrunner, errorname)
-            data.ticks = variants[0].ticks
-            return variants[0].storedcanvas
+        self.adjustaxis(data, variants[0].ticks, graphtexrunner, errorname)
+        data.ticks = variants[0].ticks
+        return variants[0].storedcanvas
 
 
 class linear(_regularaxis):
@@ -219,16 +224,21 @@ class linear(_regularaxis):
         else:
             return (float(value) - data.min) / (data.max - data.min)
 
+    def create(self, data, positioner, graphtexrunner, errorname):
+        return _regularaxis._create(self, data, positioner, graphtexrunner, self.parter, self.rater, errorname)
+
 lin = linear
 
 
 class logarithmic(_regularaxis):
     """logarithmic axis"""
 
-    def __init__(self, parter=parter.autologarithmic(), rater=rater.logarithmic(), **args):
+    def __init__(self, parter=parter.autologarithmic(), rater=rater.logarithmic(),
+                       linearparter=parter.autolinear(extendtick=None), **args):
         _regularaxis.__init__(self, **args)
         self.parter = parter
         self.rater = rater
+        self.linearparter = linearparter
 
     def convert(self, data, value):
         """axis coordinates -> graph coordinates"""
@@ -237,6 +247,15 @@ class logarithmic(_regularaxis):
             return (math.log(data.max) - math.log(float(value))) / (math.log(data.max) - math.log(data.min))
         else:
             return (math.log(float(value)) - math.log(data.min)) / (math.log(data.max) - math.log(data.min))
+
+    def create(self, data, positioner, graphtexrunner, errorname):
+        try:
+            return _regularaxis._create(self, data, positioner, graphtexrunner, self.parter, self.rater, errorname)
+        except NoValidPartitionError:
+            if self.linearparter:
+                warnings.warn("no valid logarithmic partitioning found for axis %s, switch to linear partitioning" % errorname)
+                return _regularaxis._create(self, data, positioner, graphtexrunner, self.linearparter, self.rater, errorname)
+            raise
 
 log = logarithmic
 
@@ -274,7 +293,7 @@ class subaxispositioner(positioner._positioner):
 
 class bar(_axis):
 
-    def __init__(self, subaxes=None, defaultsubaxis=linear(painter=None, linkpainter=None, parter=None, texter=None),
+    def __init__(self, subaxes=None, defaultsubaxis=linear(painter=None, linkpainter=None, parter=None),
                        dist=0.5, firstdist=None, lastdist=None, title=None, reverse=0,
                        painter=painter.bar(), linkpainter=painter.linkedbar()):
         self.subaxes = subaxes

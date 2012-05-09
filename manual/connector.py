@@ -4,6 +4,12 @@ import sys
 sys.path.insert(0, "..")
 from math import *
 from pyx import *
+try:
+    from math import radians, degrees
+except ImportError:
+    # fallback implementation for Python 2.1
+    def radians(x): return x*pi/180
+    def degrees(x): return x*180/pi
 
 startbox = box.polygon(corners=[[0,-0.6], [0.5,0.1], [-0.25,0.1]])
 endbox = box.polygon(corners=[[4.5,3.9], [5.5,4.0], [5.2,3.4]])

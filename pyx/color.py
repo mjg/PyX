@@ -1,10 +1,9 @@
-#!/usr/bin/env python
 # -*- coding: ISO-8859-1 -*-
 #
 #
 # Copyright (C) 2002-2004, 2006 Jörg Lehmann <joergl@users.sourceforge.net>
 # Copyright (C) 2003-2006 Michael Schindler <m-schindler@users.sourceforge.net>
-# Copyright (C) 2002-2004 André Wobst <wobsta@users.sourceforge.net>
+# Copyright (C) 2002-2007 André Wobst <wobsta@users.sourceforge.net>
 #
 # This file is part of PyX (http://pyx.sourceforge.net/).
 #
@@ -22,7 +21,7 @@
 # along with PyX; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 
-import colorsys, math
+import binascii, colorsys, math, struct, warnings
 import attr, style, pdfwriter
 
 # device-dependend (nonlinear) functions for color conversion
@@ -70,10 +69,10 @@ class grey(color):
         if gray<0 or gray>1: raise ValueError
         self.color = {"gray": gray}
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         file.write("%(gray)g setgray\n" % self.color)
 
-    def outputPDF(self, file, writer, context):
+    def processPDF(self, file, writer, context, registry, bbox):
         if context.strokeattr:
             file.write("%(gray)f G\n" % self.color)
         if context.fillattr:
@@ -83,7 +82,7 @@ class grey(color):
         return cmyk(0, 0, 0, 1 - self.color["gray"])
 
     def grey(self):
-        return self
+        return grey(**self.color)
     gray = grey
 
     def hsb(self):
@@ -91,6 +90,12 @@ class grey(color):
 
     def rgb(self):
         return rgb(self.color["gray"], self.color["gray"], self.color["gray"])
+
+    def colorspacestring(self):
+        return "/DeviceGray"
+
+    def tostring8bit(self):
+        return chr(int(self.color["gray"]*255))
 
 grey.black = grey(0.0)
 grey.white = grey(1.0)
@@ -106,10 +111,10 @@ class rgb(color):
         if r<0 or r>1 or g<0 or g>1 or b<0 or b>1: raise ValueError
         self.color = {"r": r, "g": g, "b": b}
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         file.write("%(r)g %(g)g %(b)g setrgbcolor\n" % self.color)
 
-    def outputPDF(self, file, writer, context):
+    def processPDF(self, file, writer, context, registry, bbox):
         if context.strokeattr:
             file.write("%(r)f %(g)f %(b)f RG\n" % self.color)
         if context.fillattr:
@@ -154,13 +159,36 @@ class rgb(color):
             return hsb(0, 0, x)
 
     def rgb(self):
-        return self
+        return rgb(**self.color)
 
-rgb.red   = rgb(1 ,0, 0)
-rgb.green = rgb(0 ,1, 0)
-rgb.blue  = rgb(0 ,0, 1)
-rgb.white = rgb(1 ,1, 1)
-rgb.black = rgb(0 ,0, 0)
+    def colorspacestring(self):
+        return "/DeviceRGB"
+
+    def tostring8bit(self):
+        return struct.pack("BBB", int(self.color["r"]*255), int(self.color["g"]*255), int(self.color["b"]*255))
+
+    def tohexstring(self, cssstrip=1, addhash=1):
+        hexstring = binascii.b2a_hex(self.to8bitstring())
+        if cssstrip and hexstring[0] == hexstring[1] and hexstring[2] == hexstring[3] and hexstring[4] == hexstring[5]:
+            hexstring = "".join([hexstring[0], hexstring[1], hexstring[2]])
+        if addhash:
+            hexstring = "#" + hexstring
+        return hexstring
+
+
+def rgbfromhexstring(hexstring):
+    hexstring = hexstring.strip().lstrip("#")
+    if len(hexstring) == 3:
+        hexstring = "".join([hexstring[0], hexstring[0], hexstring[1], hexstring[1], hexstring[2], hexstring[2]])
+    elif len(hexstring) != 6:
+        raise ValueError("3 or 6 digit hex number expected (with optional leading hash character)")
+    return rgb(*[value/255.0 for value in struct.unpack("BBB", binascii.a2b_hex(hexstring))])
+
+rgb.red   = rgb(1, 0, 0)
+rgb.green = rgb(0, 1, 0)
+rgb.blue  = rgb(0, 0, 1)
+rgb.white = rgb(1, 1, 1)
+rgb.black = rgb(0, 0, 0)
 
 
 class hsb(color):
@@ -172,12 +200,12 @@ class hsb(color):
         if h<0 or h>1 or s<0 or s>1 or b<0 or b>1: raise ValueError
         self.color = {"h": h, "s": s, "b": b}
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         file.write("%(h)g %(s)g %(b)g sethsbcolor\n" % self.color)
 
-    def outputPDF(self, file, writer, context):
+    def processPDF(self, file, writer, context, registry, bbox):
         r, g, b = colorsys.hsv_to_rgb(self.color["h"], self.color["s"], self.color["b"])
-        rgb(r, g, b).outputPDF(file, writer, context)
+        rgb(r, g, b).processPDF(file, writer, context, registry, bbox)
 
     def cmyk(self):
         return self.rgb().cmyk()
@@ -187,7 +215,7 @@ class hsb(color):
     gray = grey
 
     def hsb(self):
-        return self
+        return hsb(**self.color)
 
     def rgb(self):
         h, s, b = self.color["h"], self.color["s"], self.color["b"]
@@ -207,6 +235,9 @@ class hsb(color):
         else:
             return rgb(b, b*k, b*m)
 
+    def colorspacestring(self):
+        raise RuntimeError("colorspace string not available for hsb colors")
+
 
 class cmyk(color):
 
@@ -217,17 +248,17 @@ class cmyk(color):
         if c<0 or c>1 or m<0 or m>1 or y<0 or y>1 or k<0 or k>1: raise ValueError
         self.color = {"c": c, "m": m, "y": y, "k": k}
 
-    def outputPS(self, file, writer, context):
+    def processPS(self, file, writer, context, registry, bbox):
         file.write("%(c)g %(m)g %(y)g %(k)g setcmykcolor\n" % self.color)
 
-    def outputPDF(self, file, writer, context):
+    def processPDF(self, file, writer, context, registry, bbox):
         if context.strokeattr:
             file.write("%(c)f %(m)f %(y)f %(k)f K\n" % self.color)
         if context.fillattr:
             file.write("%(c)f %(m)f %(y)f %(k)f k\n" % self.color)
 
     def cmyk(self):
-        return self
+        return cmyk(**self.color)
 
     def grey(self):
         return grey(1 - min([1, 0.3*self.color["c"] + 0.59*self.color["m"] +
@@ -244,6 +275,12 @@ class cmyk(color):
         y = min(1, self.color["y"] + self.color["k"])
         # conversion from cmy to rgb:
         return rgb(1 - c, 1 - m, 1 - y)
+
+    def colorspacestring(self):
+        return "/DeviceCMYK"
+
+    def tostring8bit(self):
+        return struct.pack("BBBB", int(self.color["c"]*255), int(self.color["m"]*255), int(self.color["y"]*255), int(self.color["k"]*255))
 
 cmyk.GreenYellow    = cmyk(0.15, 0, 0.69, 0)
 cmyk.Yellow         = cmyk(0, 0, 1, 0)
@@ -317,16 +354,20 @@ cmyk.White          = cmyk(0, 0, 0, 0)
 cmyk.white          = cmyk.White
 cmyk.black          = cmyk.Black
 
+class palette(attr.changelist):
+    """color palettes
 
-class palette(color, attr.changeattr):
+    A color palette is a discrete, ordered list of colors"""
 
-    """base class for all palettes
+palette.clear = attr.clearclass(palette)
 
-    A palette is a collection of colors with a single parameter ranging from 0 to 1
+
+class gradient(attr.changeattr):
+
+    """base class for color gradients
+
+    A gradient is a continuous collection of colors with a single parameter ranging from 0 to 1
     to address them"""
-
-    def __init__(self):
-        color.__init__(self)
 
     def getcolor(self, param):
         """return color corresponding to param"""
@@ -340,19 +381,14 @@ class palette(color, attr.changeattr):
             param = index / (n_indices - 1.0)
         return self.getcolor(param)
 
-    def outputPS(self, file, writer, context):
-        self.getcolor(0).outputPS(file, writer, context)
-
-    def outputPDF(self, file, writer, context):
-        self.getcolor(0).outputPDF(file, writer, context)
+gradient.clear = attr.clearclass(gradient)
 
 
-class linearpalette(palette):
+class lineargradient(gradient):
 
-    """linearpalette is a collection of two colors for a linear transition between them"""
+    """collection of two colors for a linear transition between them"""
 
     def __init__(self, mincolor, maxcolor):
-        palette.__init__(self)
         if mincolor.__class__ != maxcolor.__class__:
             raise ValueError
         self.colorclass = mincolor.__class__
@@ -366,94 +402,92 @@ class linearpalette(palette):
         return self.colorclass(**colordict)
 
 
-class functionpalette(palette):
+class functiongradient(gradient):
 
-    """functionpalette is a collection of colors for an arbitray non-linear transition between them
+    """collection of colors for an arbitray non-linear transition between them
 
     parameters:
     functions: a dictionary for the color values
     type:      a string indicating the color class
     """
 
-    def __init__(self, functions, type):
-        palette.__init__(self)
-        if type == "cmyk":
-            self.colorclass = cmyk
-        elif type == "rgb":
-            self.colorclass = rgb
-        elif type == "hsb":
-            self.colorclass = hsb
-        elif type == "grey" or type == "gray":
-            self.colorclass = grey
-        else:
-            raise ValueError
+    def __init__(self, functions, cls):
         self.functions = functions
+        self.cls = cls
 
     def getcolor(self, param):
         colordict = {}
         for key in self.functions.keys():
             colordict[key] = self.functions[key](param)
-        return self.colorclass(**colordict)
+        return self.cls(**colordict)
 
 
-palette.Gray           = linearpalette(gray.white, gray.black)
-palette.Grey           = palette.Gray
-palette.ReverseGray    = linearpalette(gray.black, gray.white)
-palette.ReverseGrey    = palette.ReverseGray
-palette.BlackYellow    = functionpalette(functions={#(compare this with reversegray above)
+gradient.Gray           = lineargradient(gray.white, gray.black)
+gradient.Grey           = gradient.Gray
+gradient.ReverseGray    = lineargradient(gray.black, gray.white)
+gradient.ReverseGrey    = gradient.ReverseGray
+gradient.BlackYellow    = functiongradient({ # compare this with reversegray above
     "r":(lambda x: 2*x*(1-x)**5 + 3.5*x**2*(1-x)**3 + 2.1*x*x*(1-x)**2 + 3.0*x**3*(1-x)**2 + x**0.5*(1-(1-x)**2)),
     "g":(lambda x: 1.5*x**2*(1-x)**3 - 0.8*x**3*(1-x)**2 + 2.0*x**4*(1-x) + x**4),
     "b":(lambda x: 5*x*(1-x)**5 - 0.5*x**2*(1-x)**3 + 0.3*x*x*(1-x)**2 + 5*x**3*(1-x)**2 + 0.5*x**6)},
-    type="rgb")
-palette.RedGreen       = linearpalette(rgb.red, rgb.green)
-palette.RedBlue        = linearpalette(rgb.red, rgb.blue)
-palette.GreenRed       = linearpalette(rgb.green, rgb.red)
-palette.GreenBlue      = linearpalette(rgb.green, rgb.blue)
-palette.BlueRed        = linearpalette(rgb.blue, rgb.red)
-palette.BlueGreen      = linearpalette(rgb.blue, rgb.green)
-palette.RedBlack       = linearpalette(rgb.red, rgb.black)
-palette.BlackRed       = linearpalette(rgb.black, rgb.red)
-palette.RedWhite       = linearpalette(rgb.red, rgb.white)
-palette.WhiteRed       = linearpalette(rgb.white, rgb.red)
-palette.GreenBlack     = linearpalette(rgb.green, rgb.black)
-palette.BlackGreen     = linearpalette(rgb.black, rgb.green)
-palette.GreenWhite     = linearpalette(rgb.green, rgb.white)
-palette.WhiteGreen     = linearpalette(rgb.white, rgb.green)
-palette.BlueBlack      = linearpalette(rgb.blue, rgb.black)
-palette.BlackBlue      = linearpalette(rgb.black, rgb.blue)
-palette.BlueWhite      = linearpalette(rgb.blue, rgb.white)
-palette.WhiteBlue      = linearpalette(rgb.white, rgb.blue)
-palette.Rainbow        = linearpalette(hsb(0, 1, 1), hsb(2.0/3.0, 1, 1))
-palette.ReverseRainbow = linearpalette(hsb(2.0/3.0, 1, 1), hsb(0, 1, 1))
-palette.Hue            = linearpalette(hsb(0, 1, 1), hsb(1, 1, 1))
-palette.ReverseHue     = linearpalette(hsb(1, 1, 1), hsb(0, 1, 1))
+    rgb)
+gradient.RedGreen       = lineargradient(rgb.red, rgb.green)
+gradient.RedBlue        = lineargradient(rgb.red, rgb.blue)
+gradient.GreenRed       = lineargradient(rgb.green, rgb.red)
+gradient.GreenBlue      = lineargradient(rgb.green, rgb.blue)
+gradient.BlueRed        = lineargradient(rgb.blue, rgb.red)
+gradient.BlueGreen      = lineargradient(rgb.blue, rgb.green)
+gradient.RedBlack       = lineargradient(rgb.red, rgb.black)
+gradient.BlackRed       = lineargradient(rgb.black, rgb.red)
+gradient.RedWhite       = lineargradient(rgb.red, rgb.white)
+gradient.WhiteRed       = lineargradient(rgb.white, rgb.red)
+gradient.GreenBlack     = lineargradient(rgb.green, rgb.black)
+gradient.BlackGreen     = lineargradient(rgb.black, rgb.green)
+gradient.GreenWhite     = lineargradient(rgb.green, rgb.white)
+gradient.WhiteGreen     = lineargradient(rgb.white, rgb.green)
+gradient.BlueBlack      = lineargradient(rgb.blue, rgb.black)
+gradient.BlackBlue      = lineargradient(rgb.black, rgb.blue)
+gradient.BlueWhite      = lineargradient(rgb.blue, rgb.white)
+gradient.WhiteBlue      = lineargradient(rgb.white, rgb.blue)
+gradient.Rainbow        = lineargradient(hsb(0, 1, 1), hsb(2.0/3.0, 1, 1))
+gradient.ReverseRainbow = lineargradient(hsb(2.0/3.0, 1, 1), hsb(0, 1, 1))
+gradient.Hue            = lineargradient(hsb(0, 1, 1), hsb(1, 1, 1))
+gradient.ReverseHue     = lineargradient(hsb(1, 1, 1), hsb(0, 1, 1))
 
 
 class PDFextgstate(pdfwriter.PDFobject):
 
-    def __init__(self, name, extgstate):
-        pdfwriter.PDFobject.__init__(self, "extgstate", name, "ExtGState")
+    def __init__(self, name, extgstate, registry):
+        pdfwriter.PDFobject.__init__(self, "extgstate", name)
+        registry.addresource("ExtGState", name, self)
         self.name = name
         self.extgstate = extgstate
 
-    def outputPDF(self, file, writer, registry):
+    def write(self, file, writer, registry):
         file.write("%s\n" % self.extgstate)
 
 
 class transparency(attr.exclusiveattr, style.strokestyle, style.fillstyle):
 
     def __init__(self, value):
-        value = 1-value
+        self.value = 1-value
         attr.exclusiveattr.__init__(self, transparency)
-        self.name = "Transparency-%f" % value
-        self.extgstate = "<< /Type /ExtGState /CA %f /ca %f >>" % (value, value)
 
-    def outputPS(self, file, writer, context):
-        raise NotImplementedError("transparency not available in PostScript")
+    def processPS(self, file, writer, context, registry, bbox):
+        warnings.warn("Transparency not available in PostScript, proprietary ghostscript extension code inserted.")
+        file.write("%f .setshapealpha\n" % self.value)
 
-    def registerPDF(self, registry):
-        registry.add(PDFextgstate(self.name, self.extgstate))
-
-    def outputPDF(self, file, writer, context):
-        file.write("/%s gs\n" % self.name)
+    def processPDF(self, file, writer, context, registry, bbox):
+        if context.strokeattr and context.fillattr:
+            registry.add(PDFextgstate("Transparency-%f" % self.value,
+                                      "<< /Type /ExtGState /CA %f /ca %f >>" % (self.value, self.value), registry))
+            file.write("/Transparency-%f gs\n" % self.value)
+        elif context.strokeattr:
+            registry.add(PDFextgstate("Transparency-Stroke-%f" % self.value,
+                                      "<< /Type /ExtGState /CA %f >>" % self.value, registry))
+            file.write("/Transparency-Stroke-%f gs\n" % self.value)
+        elif context.fillattr:
+            registry.add(PDFextgstate("Transparency-Fill-%f" % self.value,
+                                      "<< /Type /ExtGState /ca %f >>" % self.value, registry))
+            file.write("/Transparency-Fill-%f gs\n" % self.value)
 
