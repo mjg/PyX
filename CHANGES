@@ -5,6 +5,7 @@ TODO:
     - make dash length available
   - text module:
     - repair PDF generation with unincluded standard fonts (currently broken)
+    - change DSC in PS fonts: Resource instead of Font (also in pswriter)
     - SlantFont & Co support
     - keep an eye on PEP 324 (popen 5): it could make the texrunner much easier
     - discuss reltransform: https://sourceforge.net/mailarchive/forum.php?thread_id=9137692&forum_id=23700
@@ -97,6 +98,8 @@ TODO:
   - type 1 font modules:
     - allow font slanting for T1builtinfont instances
     - improve stripped font compatibility
+    - remove UniqueID lookup from embedded fonts in PostScript output (fixes
+      missing glyph issue with dvips and certain fonts)
     - allow Type1 font usage without TeX and without AFM font metric
     - add support for pfm font matrices
   - epsfile module:
