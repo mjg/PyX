@@ -1,0 +1,5 @@
+This makes positioning much more predictable. On the other hand, I'm not sure
+what the allowed positions at the beginning and end of the path should be. I.e.:
+Should an arrow head be allowed to protrude beyond the end of the path? pos=1
+puts the tip there now, rather than the constriction center (as for other values).
+This should be the most practical variant.
