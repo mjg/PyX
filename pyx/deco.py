@@ -472,7 +472,8 @@ class arrow(deco, attr.attr):
             constrictionlen = self.size * 1 * math.cos(math.radians(self.angle/2.0))
             arrowheadconstrictionlen = None
 
-        arclenfrombegin = (1-2*self.reversed)*constrictionlen + self.pos * (anormpath.arclen() - constrictionlen)
+        arclenfrombegin = (1-2*self.reversed)*constrictionlen + self.pos * anormpath.arclen()
+        arclenfrombegin = min(anormpath.arclen(), max(0, arclenfrombegin))
         direction = self.reversed and -1 or 1
         arrowhead = _arrowhead(anormpath, arclenfrombegin, direction, self.size, self.angle, arrowheadconstrictionlen)
 
