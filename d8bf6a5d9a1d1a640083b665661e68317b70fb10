@@ -1,0 +1,5 @@
+Following up the pos/relarclen discussion, here's a patch within the
+current design which prevents the necessity of extrapolating the path.
+
+Also, in contrast to the other patches I sent a minute ago, I managed to set
+my author field again...
