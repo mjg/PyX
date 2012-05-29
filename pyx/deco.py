@@ -521,6 +521,41 @@ earrow.LARGe = earrow(size=_base*math.sqrt(32))
 earrow.LARGE = earrow(size=_base*math.sqrt(64))
 
 
+class insert(deco, attr.attr):
+    """a decorator which inserts a canvas"""
+
+    def __init__(self, decocanvas, attrs=[], angle=0, relangle=None,
+                       relarclenpos=0.5, arclenfrombegin=None, arclenfromend=None):
+        if arclenfrombegin is not None and arclenfromend is not None:
+            raise ValueError("either set arclenfrombegin or arclenfromend")
+        self.decocanvas = decocanvas
+        self.attrs = attrs
+        self.angle = angle
+        self.relangle = relangle
+        self.relarclenpos = relarclenpos
+        self.arclenfrombegin = arclenfrombegin
+        self.arclenfromend = arclenfromend
+
+    def decorate(self, dp, texrunner):
+        dp.ensurenormpath()
+        if self.arclenfrombegin is not None:
+            param = dp.path.begin() + self.arclenfrombegin
+        elif self.arclenfromend is not None:
+            param = dp.path.end() - self.arclenfromend
+        else:
+            # relarcpos is used, when neither arcfrombegin nor arcfromend is given
+            param = self.relarclenpos * dp.path.arclen()
+        x, y = dp.path.at(param)
+
+        if self.relangle is not None:
+            a = dp.path.trafo(param).apply_pt(math.cos(self.relangle*math.pi/180), math.sin(self.relangle*math.pi/180))
+            b = dp.path.trafo(param).apply_pt(0, 0)
+            angle = math.atan2(a[1] - b[1], a[0] - b[0])
+            angle = angle*180/math.pi
+        else:
+            angle = self.angle
+        dp.ornaments.insert(self.decocanvas, self.attrs + [trafo.rotate(angle), trafo.translate(x, y)])
+
 class text(deco, attr.attr):
     """a simple text decorator"""
 
