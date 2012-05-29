@@ -1,0 +1,2 @@
+As a next step one could reimplement deco.text() by using deco.insert(),
+but this is not necessary, of course.
