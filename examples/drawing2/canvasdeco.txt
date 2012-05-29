@@ -1,0 +1,11 @@
+Inserting a canvas as a path decoration
+
+In this example, a decoration is constructed using an arbitrary canvas (here
+`cd`). This canvas decoration is then inserted, i.e. the path is decorated by
+inserting the canvas at several positions.
+
+The canvas is inserted with its origin lined up with the point on the path, and
+possibly rotated by a fixed angle or relative to the path tangent (as in the
+example).
+
+For convenience, additional canvas attributes can be specified on the fly.
