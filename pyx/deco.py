@@ -472,7 +472,7 @@ class arrow(deco, attr.attr):
         dp.ensurenormpath()
         anormpath = dp.path
 
-        arclenfrombegin = (1-self.reversed)*self.constrictionlen + self.pos * (anormpath.arclen() - self.constrictionlen)
+        arclenfrombegin = (1-self.reversed)*self.size + self.pos * (anormpath.arclen() - self.size)
         direction = self.reversed and -1 or 1
         arrowhead = _arrowhead(anormpath, arclenfrombegin, direction, self.size, self.angle,
                                self.constriction is not None, self.constrictionlen)
@@ -481,10 +481,16 @@ class arrow(deco, attr.attr):
         dp.ornaments.draw(arrowhead, self.attrs)
 
         # exlude part of the path from stroking when the arrow is strictly at the begin or the end
-        if self.pos == 0 and self.reversed:
-            dp.excluderange(0, min(self.size, self.constrictionlen))
-        elif self.pos == 1 and not self.reversed:
-            dp.excluderange(anormpath.end() - min(self.size, self.constrictionlen), anormpath.end())
+        if self.pos == 0:
+            if self.reversed:
+                dp.excluderange(0, min(self.size, self.constrictionlen))
+            else:
+                dp.excluderange(0, min(self.size, self.size - self.constrictionlen))
+        elif self.pos == 1:
+            if self.reversed:
+                dp.excluderange(anormpath.end() - min(self.size, self.size - self.constrictionlen), anormpath.end())
+            else:
+                dp.excluderange(anormpath.end() - min(self.size, self.constrictionlen), anormpath.end())
 
 arrow.clear = attr.clearclass(arrow)
 
