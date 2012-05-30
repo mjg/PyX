@@ -432,14 +432,19 @@ class arrow(deco, attr.attr):
 
     """arrow is a decorator which adds an arrow to either side of the path"""
 
-    def __init__(self, attrs=[], pos=1, reversed=0, size=_base, angle=45, constriction=0.8):
+    def __init__(self, attrs=[], pos=1, relarclenpos=None, arclenfrombegin=None, arclenfromend=None,
+                       reversed=0, size=_base, angle=45, constriction=0.8, center=0.666667):
         self.attrs = attr.mergeattrs([style.linestyle.solid, filled] + attrs)
         attr.checkattrs(self.attrs, [deco, style.fillstyle, style.strokestyle])
         self.pos = pos
+        self.relarclenpos = relarclenpos
+        self.arclenfrombegin = arclenfrombegin
+        self.arclenfromend = arclenfromend
         self.reversed = reversed
         self.size = size
         self.angle = angle
         self.constriction = constriction
+        self.center = center
 
         # calculate absolute arc length of constricition
         # Note that we have to correct this length because the arrowtemplates are rotated
@@ -453,11 +458,18 @@ class arrow(deco, attr.attr):
             # need constrictionlen for cutting the path
             self.constrictionlen = self.size * 1 * math.cos(math.radians(self.angle/2.0))
 
-    def __call__(self, attrs=None, pos=None, reversed=None, size=None, angle=None, constriction=_marker):
+    def __call__(self, attrs=None, pos=None, relarclenpos=None, arclenfrombegin=None, arclenfromend=None,
+                       reversed=None, size=None, angle=None, constriction=_marker, center=None):
         if attrs is None:
             attrs = self.attrs
         if pos is None:
             pos = self.pos
+        if relarclenpos is None:
+            arelrclenpos = self.relarclenpos
+        if arclenfrombegin is None:
+            arclenfrombegin = self.arclenfrombegin
+        if arclenfromend is None:
+            arclenfromend = self.arclenfromend
         if reversed is None:
             reversed = self.reversed
         if size is None:
@@ -466,14 +478,30 @@ class arrow(deco, attr.attr):
             angle = self.angle
         if constriction is _marker:
             constriction = self.constriction
-        return arrow(attrs=attrs, pos=pos, reversed=reversed, size=size, angle=angle, constriction=constriction)
+        if center is None:
+            center = self.center
+        return arrow(attrs=attrs, pos=pos, relarclenpos=relarclenpos, arclenfrombegin=arclenfrombegin,
+                     arclenfromend=arclenfromend, reversed=reversed, size=size, angle=angle, constriction=constriction, center=center)
 
     def decorate(self, dp, texrunner):
         dp.ensurenormpath()
         anormpath = dp.path
 
-        arclenfrombegin = (1-self.reversed)*self.size + self.pos * (anormpath.arclen() - self.size)
+        pos = None
+        if self.arclenfrombegin is not None:
+            arclenfrombegin = self.arclenfrombegin
+        elif self.arclenfromend is not None:
+            arclenfrombegin = anormpath.end() - self.arclenfromend
+        elif self.relarclenpos is not None:
+            # relarcpos is used if neither arcfrombegin nor arcfromend is given
+            arclenfrombegin = self.relarclenpos * anormpath.arclen()
+        else:
+            # pos is used if neither of the above are given
+            pos = self.pos
+            arclenfrombegin = (1-self.reversed)*self.size + pos * (anormpath.arclen() - self.size)
         direction = self.reversed and -1 or 1
+        if pos is None:
+            arclenfrombegin += direction * self.center * self.size
         arrowhead = _arrowhead(anormpath, arclenfrombegin, direction, self.size, self.angle,
                                self.constriction is not None, self.constrictionlen)
 
@@ -481,12 +509,12 @@ class arrow(deco, attr.attr):
         dp.ornaments.draw(arrowhead, self.attrs)
 
         # exlude part of the path from stroking when the arrow is strictly at the begin or the end
-        if self.pos == 0:
+        if pos == 0:
             if self.reversed:
                 dp.excluderange(0, min(self.size, self.constrictionlen))
             else:
                 dp.excluderange(0, min(self.size, self.size - self.constrictionlen))
-        elif self.pos == 1:
+        elif pos == 1:
             if self.reversed:
                 dp.excluderange(anormpath.end() - min(self.size, self.size - self.constrictionlen), anormpath.end())
             else:
