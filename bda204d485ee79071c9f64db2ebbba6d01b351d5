@@ -1,0 +1,8 @@
+So, here's a patch trying to combine the existing reasoning for pos with the
+possibility to position arrow heads like other decorations.
+
+It goes on top of "fix arrows at pos=0", and it does not change any arrow behaviour
+unless the new positioning arguments (which are the same as for deco.text()) are used.
+
+I would say that "pos" is perfect for begin and end arrows, whereas "arclenpos"
+is perfect for arrows heads in between.
