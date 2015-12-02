@@ -1,0 +1,11 @@
+The patch is against r3425, sorry for being on py 3 yet.
+
+Simple reproducer:
+
+from pyx import *
+
+gridpainter = graph.axis.painter.regular(gridattrs=[])
+gridaxis = graph.axis.linear(painter=gridpainter)
+g=graph.graphxy(width=6, x=gridaxis, y=gridaxis, xaxisat=0, yaxisat=0)
+g.plot(graph.data.function("y(x)=x*x", min=-1, max=1))
+g.writePDFfile()
