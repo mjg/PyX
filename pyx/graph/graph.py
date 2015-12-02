@@ -535,7 +535,10 @@ class graphxy(graph):
             t = trafo.translate_pt(0, self.ypos_pt + v*self.height_pt - axis.positioner.y1_pt)
         c = canvas.canvas()
         for layer, subcanvas in axis.canvas.layers.items():
-            c.layer(layer).insert(subcanvas, [t])
+            if layer == 'grid':
+                c.layer(layer).insert(subcanvas)
+            else:
+                c.layer(layer).insert(subcanvas, [t])
         assert len(axis.canvas.layers) == len(axis.canvas.items), str(axis.canvas.items)
         axis.canvas = c
 
