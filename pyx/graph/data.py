@@ -501,7 +501,7 @@ class function(_data):
     assignmentpattern = re.compile(r"\s*([a-z_][a-z0-9_]*)\s*\(\s*([a-z_][a-z0-9_]*)\s*\)\s*=", re.IGNORECASE)
 
     def __init__(self, expression, title=_notitle, min=None, max=None,
-                 points=100, context={}):
+                 points=100, context={}, lipshitz=0):
 
         if title is _notitle:
             self.title = expression
@@ -522,6 +522,7 @@ class function(_data):
         self.expression = compile(expression.strip(), __file__, "eval")
         self.columns = {}
         self.columnnames = [self.xname, self.yname]
+        self.lipshitz = lipshitz
 
     def dynamiccolumns(self, graph, axisnames):
         dynamiccolumns = {self.xname: [], self.yname: []}
@@ -550,6 +551,9 @@ class function(_data):
                 y = eval(self.expression, _mathglobals, self.context)
             except (ArithmeticError, ValueError):
                 y = None
+            if i and self.lipshitz > 0 and y is not None and abs(y - dynamiccolumns[self.yname][-1]) > self.lipshitz * abs(x - dynamiccolumns[self.xname][-2]):
+                dynamiccolumns[self.yname].append(None)
+                dynamiccolumns[self.xname].append(x)
             dynamiccolumns[self.yname].append(y)
         return dynamiccolumns
 
