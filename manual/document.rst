@@ -30,7 +30,6 @@ additional properties of the page.
    box is enlarged on all sides by *bboxenlarge*. Alternatively, you may specify
    the *bbox* manually.
 
-
 Class :class:`document`
 -----------------------
 
