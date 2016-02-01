@@ -1,0 +1,2 @@
+graph.style.arrow seems to allow arbitrary decorations, and the argument
+could also be named "decoscale". But there is arrowpos and arrowsize already.
