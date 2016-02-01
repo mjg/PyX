@@ -880,12 +880,13 @@ class arrow(_styleneedingpointpos):
     defaultlineattrs = []
     defaultarrowattrs = []
 
-    def __init__(self, linelength=0.25*unit.v_cm, arrowsize=0.15*unit.v_cm, lineattrs=[], arrowattrs=[], arrowpos=0.5, epsilon=1e-5, decorator=deco.earrow):
+    def __init__(self, linelength=0.25*unit.v_cm, arrowsize=0.15*unit.v_cm, lineattrs=[], arrowattrs=[], arrowpos=0.5, arrowscale=1, epsilon=1e-5, decorator=deco.earrow):
         self.linelength = linelength
         self.arrowsize = arrowsize
         self.lineattrs = lineattrs
         self.arrowattrs = arrowattrs
         self.arrowpos = arrowpos
+        self.arrowscale = arrowscale
         self.epsilon = epsilon
         self.decorator = decorator
 
@@ -930,7 +931,7 @@ class arrow(_styleneedingpointpos):
                     y2 = y_pt+(1-self.arrowpos)*dy*linelength_pt*size
                     if self.decorator:
                         privatedata.arrowcanvas.stroke(path.line_pt(x1, y1, x2, y2),
-                                                       privatedata.lineattrs+[self.decorator(privatedata.arrowattrs, size=self.arrowsize*size)])
+                                                       privatedata.lineattrs+[self.decorator(privatedata.arrowattrs, size=self.arrowsize*((1-self.arrowscale) + self.arrowscale*size))])
                     else:
                         privatedata.arrowcanvas.stroke(path.line_pt(x1, y1, x2, y2), privatedata.lineattrs)
 
