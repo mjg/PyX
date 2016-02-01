@@ -1,2 +1,10 @@
 graph.style.arrow seems to allow arbitrary decorations, and the argument
 could also be named "decoscale". But there is arrowpos and arrowsize already.
+
+This is just a suggestion, I'm sure there are better ways of doing this.
+Note that without this patch, a user would have to supply a decorator
+which ignores the size argument that graph.style.arrow stuffs into it
+and uses a fixed size instead, which is possible, of course. I do think that
+arrow (vector field) plots with variable arrow length and fixed head size
+are a common use case, though. In fact, one could argue that arrowscale=0
+would be a sensible default.
