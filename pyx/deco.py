@@ -282,7 +282,10 @@ class decoratedpath(baseclasses.canvasitem):
             strokepath.outputPDF(file, writer)
             file.write("S\n") # stroke
             # take linewidth into account for bbox when stroking a path
-            bbox += strokepath.bbox().enlarged_pt(0.5*acontext.linewidth_pt)
+            if acontext.linewidth_pt is None:
+                bbox += strokepath.bbox()
+            else:
+                bbox += strokepath.bbox().enlarged_pt(0.5*acontext.linewidth_pt)
 
             if self.strokestyles:
                 file.write("Q\n") # grestore
